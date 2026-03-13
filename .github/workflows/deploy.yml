@@ -21,7 +21,7 @@ jobs:
             cd /home/u925800196/domains/medicsresearch.com/public_html/pmtoolstaging-api
 
             echo "Pull latest code"
-            git pull origin staging
+            git pull origin main
 
             echo "Install composer dependencies"
             composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
