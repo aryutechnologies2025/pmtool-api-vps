@@ -3,7 +3,7 @@ name: 🚀 Deploy Laravel Staging Backend
 on:
   push:
     branches:
-      - main
+      - staging
 
 jobs:
   deploy:
@@ -21,7 +21,7 @@ jobs:
             cd /home/u925800196/domains/medicsresearch.com/public_html/pmtoolstaging-api
 
             echo "Pull latest code"
-            git pull origin main
+            git pull origin staging
 
             echo "Install composer dependencies"
             composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
