@@ -1,0 +1,15 @@
+RewriteEngine On
+
+# Serve index.html for the root
+DirectoryIndex index.html
+
+# Redirect specific pages to their HTML files
+
+
+# Redirect /registration-success/ to /registration-success.html
+RewriteRule ^registration-success/?$ /registration-success.html [L]
+
+# SPA fallback for other pages
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^.*$ /index.html [L,QSA]
