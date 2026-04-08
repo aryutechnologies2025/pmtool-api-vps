@@ -23,8 +23,8 @@ jobs:
             cd /var/www/pmtoolapi
 
             echo "Pull latest code"
-            git reset --hard
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             echo "Install composer dependencies"
             composer install --no-dev --optimize-autoloader
