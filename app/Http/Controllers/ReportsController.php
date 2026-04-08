@@ -2512,10 +2512,9 @@ class ReportsController extends Controller
         return round($units, $precision);
     }
 
-    public function getEmployeePerformanceReport(Request $request)
+ public function getEmployeePerformanceReport(Request $request)
     {
         $query = ProjectLogs::with([
-            'entryProcess:id,client_name,project_id',
             'userData:id,employee_name',
         ])->select('id', 'project_id', 'employee_id', 'status', 'status_type', 'created_date', 'assing_preview_id');
 
@@ -2524,8 +2523,36 @@ class ReportsController extends Controller
         }
 
         $logs = $query->orderBy('created_date')->get();
+        
+        $projectIds = $logs->pluck('project_id')->unique()->toArray();
+        
+        $entryProcesses = EntryProcessModel::whereIn('id', $projectIds)
+            ->orWhereIn('project_id', $projectIds)
+            ->get()
+            ->keyBy(function($item) {
+                return $item->project_id ?? $item->id;
+            });
+        
         $groupedLogs = $logs->groupBy('employee_id');
         $performanceData = [];
+        
+        // Arrays to track UNIQUE projects by type of work
+        $allManuscriptDurations = [];
+        $allThesisDurations = [];
+        $allReviewDurations = [];
+        
+        // Track unique projects to avoid duplicates
+        $uniqueProjects = [
+            'manuscript' => [],
+            'thesis' => [],
+            'review' => []
+        ];
+        
+        // Track which projects we've already added to duration arrays
+        $addedToDurations = [
+            'manuscript' => [],
+            'thesis' => []
+        ];
 
         foreach ($groupedLogs as $employeeId => $employeeLogs) {
 
@@ -2535,26 +2562,323 @@ class ReportsController extends Controller
                 'project_data' => [],
             ];
 
-            // Process roles
             $this->processRoleLogs($employeeLogs, 'writer', $employeePerformance);
             $this->processRoleLogs($employeeLogs, 'reviewer', $employeePerformance);
 
-            // Prepare final array
             foreach ($employeePerformance['project_data'] as $projectId => $projectData) {
-                $performanceData[] = [
+                $durationInSeconds = $projectData['total_duration'];
+                
+                $typeOfWork = null;
+                if (isset($entryProcesses[$projectId])) {
+                    $typeOfWork = strtolower($entryProcesses[$projectId]->type_of_work);
+                } else {
+                    $entryProcess = EntryProcessModel::where('project_id', (string)$projectId)->first();
+                    if ($entryProcess) {
+                        $typeOfWork = strtolower($entryProcess->type_of_work);
+                    }
+                }
+                
+                $hasWriterActivity = !empty($projectData['writer']) && $projectData['writer']['total_duration'] > 0;
+                $hasReviewerActivity = !empty($projectData['reviewer']) && $projectData['reviewer']['total_duration'] > 0;
+                
+                if ($typeOfWork === 'manuscript') {
+                    // if ($durationInSeconds > 0) {
+                    if ($this->formatSecondsToUnits($durationInSeconds) > 0) {
+                    if (!in_array($projectId, $addedToDurations['manuscript'])) {
+                        $allManuscriptDurations[] = $durationInSeconds;
+                        $addedToDurations['manuscript'][] = $projectId;
+                    }
+                    }
+                } elseif ($typeOfWork === 'thesis') {
+                    // if ($durationInSeconds > 0) {
+                    if ($this->formatSecondsToUnits($durationInSeconds) > 0) {
+                    if (!in_array($projectId, $addedToDurations['thesis'])) {
+                        $allThesisDurations[] = $durationInSeconds;
+                        $addedToDurations['thesis'][] = $projectId;
+                    }
+                    }
+                }
+                
+                // For reviews, count each unique employee-project combination
+                if ($hasReviewerActivity) {
+                    $reviewKey = $employeeId . '_' . $projectId;
+                    // if ($durationInSeconds > 0) {
+                    if ($this->formatSecondsToUnits($durationInSeconds) > 0) {
+                    if (!in_array($reviewKey, $uniqueProjects['review'])) {
+                        $allReviewDurations[] = $durationInSeconds;
+                        $uniqueProjects['review'][] = $reviewKey;
+                    }
+                    }
+                }
+                
+                // Skip if no type_of_work found
+                // if ($typeOfWork === null) {
+                //     continue;
+                // }
+                
+                // // Skip records with zero duration and no activity
+                // if ($durationInSeconds <= 0) {
+                //     continue;
+                // }
+                
+                $record = [
                     'employee_id' => $employeeId,
                     'employee_name' => $employeePerformance['employee_name'],
-                    'project_ids' => [$projectId],
+                    'project_id' => $projectId,
+                    'type_of_work' => $typeOfWork,
                     'writer' => $projectData['writer'],
                     'reviewer' => $projectData['reviewer'],
-                    'total_duration' => $this->formatSecondsToUnits($projectData['total_duration']),
+                    'total_duration' => $this->formatSecondsToUnits($durationInSeconds),
+                    'total_duration_seconds' => $durationInSeconds,
+                    'has_activity' => $hasWriterActivity || $hasReviewerActivity,
                 ];
+                
+                $performanceData[] = $record;
             }
         }
 
-        return response()->json($performanceData);
+        $sortedManuscripts = $allManuscriptDurations;
+        sort($sortedManuscripts);
+        
+        Log::info('Manuscript Durations (sorted in seconds)', [
+            'total_count' => count($sortedManuscripts),
+            'all_durations_seconds' => $sortedManuscripts,
+            'all_durations_hours' => array_map(function($sec) {
+                return $this->formatSecondsToUnits($sec);
+            }, $sortedManuscripts)
+        ]);
+
+        $globalManuscriptPercentiles = $this->calculatePercentiles($allManuscriptDurations, [25, 50, 75]);
+        $globalThesisPercentiles = $this->calculatePercentiles($allThesisDurations, [25, 50, 75]);
+        $globalReviewPercentiles = $this->calculatePercentiles($allReviewDurations, [25, 50, 75]);
+        
+        $totalManuscripts = count($allManuscriptDurations);
+        $totalThesis = count($allThesisDurations);
+        $totalManuscriptsThesis = $totalManuscripts + $totalThesis;
+        
+        $rank25 = $totalManuscripts > 0 ? (25/100) * ($totalManuscripts + 1) : null;
+      
+        
+        // Add percentiles to each record based on its type
+        // foreach ($performanceData as &$record) {
+        //     // Add global percentiles for reference
+        //     $record['global_percentiles'] = [
+        //         'manuscript' => [
+        //             'total_count' => $totalManuscripts,
+        //             'percentile_25_seconds' => $globalManuscriptPercentiles[25] ?? null,
+        //             'percentile_25_formatted' => isset($globalManuscriptPercentiles[25]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[25]) : null,
+        //             'percentile_50_seconds' => $globalManuscriptPercentiles[50] ?? null,
+        //             'percentile_50_formatted' => isset($globalManuscriptPercentiles[50]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[50]) : null,
+        //             'percentile_75_seconds' => $globalManuscriptPercentiles[75] ?? null,
+        //             'percentile_75_formatted' => isset($globalManuscriptPercentiles[75]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[75]) : null,
+        //         ],
+        //         'thesis' => [
+        //             'total_count' => $totalThesis,
+        //             'percentile_25_seconds' => $globalThesisPercentiles[25] ?? null,
+        //             'percentile_25_formatted' => isset($globalThesisPercentiles[25]) ? $this->formatSecondsToUnits($globalThesisPercentiles[25]) : null,
+        //             'percentile_50_seconds' => $globalThesisPercentiles[50] ?? null,
+        //             'percentile_50_formatted' => isset($globalThesisPercentiles[50]) ? $this->formatSecondsToUnits($globalThesisPercentiles[50]) : null,
+        //             'percentile_75_seconds' => $globalThesisPercentiles[75] ?? null,
+        //             'percentile_75_formatted' => isset($globalThesisPercentiles[75]) ? $this->formatSecondsToUnits($globalThesisPercentiles[75]) : null,
+        //         ],
+        //         'review' => [
+        //             'total_count' => count($allReviewDurations),
+        //             'percentile_25_seconds' => $globalReviewPercentiles[25] ?? null,
+        //             'percentile_25_formatted' => isset($globalReviewPercentiles[25]) ? $this->formatSecondsToUnits($globalReviewPercentiles[25]) : null,
+        //             'percentile_50_seconds' => $globalReviewPercentiles[50] ?? null,
+        //             'percentile_50_formatted' => isset($globalReviewPercentiles[50]) ? $this->formatSecondsToUnits($globalReviewPercentiles[50]) : null,
+        //             'percentile_75_seconds' => $globalReviewPercentiles[75] ?? null,
+        //             'percentile_75_formatted' => isset($globalReviewPercentiles[75]) ? $this->formatSecondsToUnits($globalReviewPercentiles[75]) : null,
+        //         ],
+        //     ];
+            
+        //     $hasWriterActivity = !empty($record['writer']) && $record['writer']['total_duration'] > 0;
+        //     $hasReviewerActivity = !empty($record['reviewer']) && $record['reviewer']['total_duration'] > 0;
+            
+        //     // Calculate percentile based on the record's type_of_work
+        //     if ($hasWriterActivity) {
+        //         if ($record['type_of_work'] === 'manuscript') {
+        //             // Use ONLY manuscript data for comparison
+        //             $record['percentile_rank'] = $this->getPercentileRank($record['total_duration_seconds'], $allManuscriptDurations);
+        //             $record['percentile_position'] = $this->getPercentilePosition($record['total_duration_seconds'], $allManuscriptDurations);
+        //             $record['percentile_category'] = 'manuscript_writing';
+        //             $record['comparison_dataset'] = 'manuscript_projects';
+        //             $record['dataset_size'] = $totalManuscripts;
+        //         } elseif ($record['type_of_work'] === 'thesis') {
+        //             // Use ONLY thesis data for comparison
+        //             $record['percentile_rank'] = $this->getPercentileRank($record['total_duration_seconds'], $allThesisDurations);
+        //             $record['percentile_position'] = $this->getPercentilePosition($record['total_duration_seconds'], $allThesisDurations);
+        //             $record['percentile_category'] = 'thesis_writing';
+        //             $record['comparison_dataset'] = 'thesis_projects';
+        //             $record['dataset_size'] = $totalThesis;
+        //         } else {
+        //             $record['percentile_rank'] = null;
+        //             $record['percentile_position'] = null;
+        //             $record['percentile_category'] = 'other_writing';
+        //             $record['comparison_dataset'] = 'not_applicable';
+        //             $record['dataset_size'] = 0;
+        //         }
+        //     } 
+        //     elseif ($hasReviewerActivity) {
+        //         // Use ONLY review data for comparison
+        //         $record['percentile_rank'] = $this->getPercentileRank($record['total_duration_seconds'], $allReviewDurations);
+        //         $record['percentile_position'] = $this->getPercentilePosition($record['total_duration_seconds'], $allReviewDurations);
+        //         $record['percentile_category'] = 'reviewing';
+        //         $record['comparison_dataset'] = 'review_activities';
+        //         $record['dataset_size'] = count($allReviewDurations);
+        //     } else {
+        //         $record['percentile_rank'] = null;
+        //         $record['percentile_position'] = null;
+        //         $record['percentile_category'] = 'no_activity';
+        //         $record['comparison_dataset'] = 'not_applicable';
+        //         $record['dataset_size'] = 0;
+        //     }
+        // }
+        
+        // Sort AFTER adding percentiles
+        usort($performanceData, function($a, $b) {
+            if ($a['total_duration_seconds'] == $b['total_duration_seconds']) {
+                return 0;
+            }
+            return ($a['total_duration_seconds'] < $b['total_duration_seconds']) ? -1 : 1;
+        });
+
+        $response = [
+            'data' => $performanceData,
+            'statistics' => [
+                'total_manuscripts' => $totalManuscripts,
+                'total_thesis' => $totalThesis,
+                'total_manuscripts_thesis' => $totalManuscriptsThesis,
+                'total_reviews' => count($allReviewDurations),
+                'manuscript_percentiles' => [
+                    'total_count' => $totalManuscripts,
+                    'percentile_25_seconds' => $globalManuscriptPercentiles[25] ?? null,
+                    'percentile_25_formatted' => isset($globalManuscriptPercentiles[25]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[25]) : null,
+                    'percentile_50_seconds' => $globalManuscriptPercentiles[50] ?? null,
+                    'percentile_50_formatted' => isset($globalManuscriptPercentiles[50]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[50]) : null,
+                    'percentile_75_seconds' => $globalManuscriptPercentiles[75] ?? null,
+                    'percentile_75_formatted' => isset($globalManuscriptPercentiles[75]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[75]) : null,
+                    'calculation_method' => 'R = (P/100) × (N + 1)',
+                    'interpolation_method' => 'Linear interpolation: Value = Value[floor(R)] + (R - floor(R)) × (Value[ceil(R)] - Value[floor(R)])',
+                    'data_source' => 'Only manuscript projects',
+                    'rank_calculation' => "R = 0.25 × ({$totalManuscripts} + 1) = " . round($rank25, 2),
+                ],
+                'thesis_percentiles' => [
+                    'total_count' => $totalThesis,
+                    'percentile_25_seconds' => $globalThesisPercentiles[25] ?? null,
+                    'percentile_25_formatted' => isset($globalThesisPercentiles[25]) ? $this->formatSecondsToUnits($globalThesisPercentiles[25]) : null,
+                    'percentile_50_seconds' => $globalThesisPercentiles[50] ?? null,
+                    'percentile_50_formatted' => isset($globalThesisPercentiles[50]) ? $this->formatSecondsToUnits($globalThesisPercentiles[50]) : null,
+                    'percentile_75_seconds' => $globalThesisPercentiles[75] ?? null,
+                    'percentile_75_formatted' => isset($globalThesisPercentiles[75]) ? $this->formatSecondsToUnits($globalThesisPercentiles[75]) : null,
+                    'calculation_method' => 'R = (P/100) × (N + 1)',
+                    'interpolation_method' => 'Linear interpolation: Value = Value[floor(R)] + (R - floor(R)) × (Value[ceil(R)] - Value[floor(R)])',
+                    'data_source' => 'Only thesis projects',
+                ],
+                'review_percentiles' => [
+                    'total_count' => count($allReviewDurations),
+                    'percentile_25_seconds' => $globalReviewPercentiles[25] ?? null,
+                    'percentile_25_formatted' => isset($globalReviewPercentiles[25]) ? $this->formatSecondsToUnits($globalReviewPercentiles[25]) : null,
+                    'percentile_50_seconds' => $globalReviewPercentiles[50] ?? null,
+                    'percentile_50_formatted' => isset($globalReviewPercentiles[50]) ? $this->formatSecondsToUnits($globalReviewPercentiles[50]) : null,
+                    'percentile_75_seconds' => $globalReviewPercentiles[75] ?? null,
+                    'percentile_75_formatted' => isset($globalReviewPercentiles[75]) ? $this->formatSecondsToUnits($globalReviewPercentiles[75]) : null,
+                    'calculation_method' => 'R = (P/100) × (N + 1)',
+                    'interpolation_method' => 'Linear interpolation: Value = Value[floor(R)] + (R - floor(R)) × (Value[ceil(R)] - Value[floor(R)])',
+                    'data_source' => 'Only review activities',
+                ],
+            ],
+        ];
+
+        return response()->json($response);
     }
 
+    
+    private function calculatePercentiles($values, $percentiles = [25, 50, 75])
+    {
+        if (empty($values)) {
+            return [];
+        }
+        
+        sort($values);
+        $n = count($values);
+        $results = [];
+        
+        foreach ($percentiles as $p) {
+            $rank = ($p / 100) * ($n + 1);
+            
+            if ($rank <= 1) {
+                $results[$p] = $values[0];
+            } elseif ($rank >= $n) {
+                $results[$p] = $values[$n - 1];
+            } else {
+                $floor = floor($rank);
+                $ceiling = ceil($rank);
+                
+                if ($floor == $ceiling) {
+                    $results[$p] = $values[$floor - 1];
+                } else {
+                    $lowerValue = $values[$floor - 1];
+                    $upperValue = $values[$ceiling - 1];
+                    $fraction = $rank - $floor;
+                    $results[$p] = $lowerValue + ($fraction * ($upperValue - $lowerValue));
+                }
+            }
+        }
+        
+        return $results;
+    }
+
+    private function getPercentileRank($value, $allValues)
+    {
+        if (empty($allValues)) {
+            return null;
+        }
+        
+        sort($allValues);
+        $n = count($allValues);
+        
+        $countLessOrEqual = 0;
+        foreach ($allValues as $v) {
+            if ($v <= $value) {
+                $countLessOrEqual++;
+            }
+        }
+        
+        $percentileRank = ($countLessOrEqual / $n) * 100;
+        
+        return round($percentileRank, 2);
+    }
+
+   
+    private function getPercentilePosition($value, $allValues)
+    {
+        if (empty($allValues)) {
+            return null;
+        }
+        
+        sort($allValues);
+        $n = count($allValues);
+        
+        $position = 0;
+        for ($i = 0; $i < $n; $i++) {
+            if ($allValues[$i] <= $value) {
+                $position = $i + 1;
+            } else {
+                break;
+            }
+        }
+        
+        if ($position > 0 && $position < $n && $allValues[$position - 1] < $value && $allValues[$position] > $value) {
+            $lowerValue = $allValues[$position - 1];
+            $upperValue = $allValues[$position];
+            
+            $fraction = ($value - $lowerValue) / ($upperValue - $lowerValue);
+            $position = $position + $fraction;
+        }
+        
+        return round($position, 2);
+    }
     private function processRoleLogs($employeeLogs, $role, &$employeePerformance)
     {
         $roleLogs = $employeeLogs->where('status_type', $role)->sortBy('created_date')->values();
@@ -2595,7 +2919,6 @@ class ReportsController extends Controller
             for ($i = 0; $i < $totalLogs; $i++) {
                 $log = $projectLogs[$i];
 
-                // ===== on_going → first completed =====
                 if ($log->status === 'on_going') {
                     $firstCompleted = null;
                     for ($j = $i + 1; $j < $totalLogs; $j++) {
@@ -2621,12 +2944,11 @@ class ReportsController extends Controller
                     }
                 }
 
-                // ===== correction / plag_correction → last completed =====
                 if (in_array($log->status, ['correction', 'plag_correction'])) {
                     $lastCompleted = null;
                     for ($j = $i + 1; $j < $totalLogs; $j++) {
                         if ($projectLogs[$j]->status === 'completed') {
-                            $lastCompleted = $projectLogs[$j]; // keep overriding to get last completed
+                            $lastCompleted = $projectLogs[$j];
                         }
                     }
 
@@ -2707,7 +3029,7 @@ class ReportsController extends Controller
             ->whereIn('position', [7, 8, 11])
             ->get()
             ->map(function ($person) {
-                $person->created_by_users = $person->created_by_users; // Access the accessor
+                $person->created_by_users = $person->created_by_users;
 
                 return $person;
             });

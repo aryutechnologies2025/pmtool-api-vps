@@ -284,10 +284,20 @@ class EntryProcessController extends Controller
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
             ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
+        $writerNeedSupport = ProjectAssignDetails::where('project_id', $id)
+            ->where('type', 'writer')
+            ->where('status', 'need_support')
+            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->exists();
 
         $reviewer = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'reviewer')
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
+            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->exists();
+        $reviewerNeedSupport = ProjectAssignDetails::where('project_id', $id)
+            ->where('type', 'reviewer')
+            ->where('status', 'need_support')
             ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
@@ -306,6 +316,11 @@ class EntryProcessController extends Controller
         $statistician = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'statistican')
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
+            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->exists();
+        $statisticianNeedSupport = ProjectAssignDetails::where('project_id', $id)
+            ->where('type', 'statistican')
+            ->where('status', 'need_support')
             ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
@@ -378,7 +393,10 @@ class EntryProcessController extends Controller
             $tracking = 'Reviewer';
         } elseif ($writer) {
             $tracking = 'Writer';
-
+        }elseif($reviewerNeedSupport || $writerNeedSupport || $statisticianNeedSupport){
+            $tracking = 'SME';
+        }elseif( $writerNeedSupport && $reviewerNeedSupport ){
+            $tracking = 'SME';
         } elseif ($correction) {
             $tracking = 'TC';
         } elseif ($inProgress) {
@@ -8369,7 +8387,7 @@ class EntryProcessController extends Controller
 
         $urgentDataList = EntryProcessModel::select('id', 'journal', 'writer', 'statistican', 'reviewer', 'hierarchy_level', 'project_id')->where('hierarchy_level', 'urgent_important')
             ->where('is_deleted', 0)
-            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author'])
+            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author','withdrawal'])
             // ->whereRaw("DATE_FORMAT(entry_date, '%Y-%m') = ?", [$selectedMonth])
             ->orderBy('id', 'desc')
             ->get();
@@ -8393,7 +8411,7 @@ class EntryProcessController extends Controller
         )
             ->where('projectduration', '<', $currentDate)
             ->where('is_deleted', 0)
-            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author'])
+            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author','withdrawal'])
             // ->whereRaw("DATE_FORMAT(entry_date, '%Y-%m') = ?", [$selectedMonth])
             ->orderBy('id', 'desc')
             ->get();
@@ -9553,6 +9571,7 @@ class EntryProcessController extends Controller
                 'statisticanData',
             ])
                 ->select('id', 'title', 'type_of_work', 'process_status', 'project_id', 'entry_date', 'hierarchy_level', 'created_at')
+                ->where('process_status', '!=', 'withdrawal')
                 ->where('is_deleted', 0)
                 ->orderBy('created_at', 'desc');
 
@@ -12228,19 +12247,22 @@ class EntryProcessController extends Controller
         $query->where(function ($q) use ($positions, $createdBy) {
             if (in_array('7', $positions)) {
                 $q->orWhereHas('writerData', function ($subQuery) use ($createdBy) {
-                    $subQuery->where('assign_user', $createdBy);
+                    $subQuery->where('assign_user', $createdBy)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
                 });
             }
 
             if (in_array('8', $positions)) {
                 $q->orWhereHas('reviewerData', function ($subQuery) use ($createdBy) {
-                    $subQuery->where('assign_user', $createdBy);
+                    $subQuery->where('assign_user', $createdBy)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
                 });
             }
 
             if (in_array('11', $positions)) {
                 $q->orWhereHas('statisticanData', function ($subQuery) use ($createdBy) {
-                    $subQuery->where('assign_user', $createdBy);
+                    $subQuery->where('assign_user', $createdBy)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
                 });
             }
         });
