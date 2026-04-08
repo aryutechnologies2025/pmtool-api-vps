@@ -142,7 +142,6 @@ class EntryProcessController extends Controller
             'institutions' => $institutionsList,
             'authorname' => $authornameList,
             'processstatus' => $processStatus,
-            'ragul' => "Grape Juice needed ah"
         ]);
     }
 
