@@ -1,39 +1,43 @@
-name: 🚀 Deploy Laravel Staging Backend
+name: Deploy Laravel API to VPS
 
 on:
-  push:
-    branches:
-      - staging
+push:
+branches:
+- main
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
+deploy:
+runs-on: ubuntu-latest
 
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: 31.97.225.238
-          username: u925800196
-          password: ${{ secrets.SERVER_PASSWORD }}
-          port: 65002
-          script: |
-            cd /home/u925800196/domains/medicsresearch.com/public_html/pmtoolstaging-api
+```
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-            echo "Pull latest code"
-            git pull origin staging
+  - name: Deploy to VPS
+    uses: appleboy/ssh-action@v1.0.3
+    with:
+      host: \${{ secrets.VPS_HOST }}
+      username: \${{ secrets.VPS_USER }}
+      key: \${{ secrets.VPS_SSH_KEY }}
+      script: |
+        cd /var/www/pmtoolapi
 
-            echo "Install composer dependencies"
-            composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+        echo "Pull latest code"
+        git reset --hard
+        git pull origin main
 
-            echo "Clear Laravel cache"
-            php artisan optimize:clear
+        echo "Install composer dependencies"
+        composer install --no-dev --optimize-autoloader
 
-            echo "Cache configs"
-            php artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
+        echo "Laravel optimize"
+        php artisan config:clear
+        php artisan cache:clear
+        php artisan config:cache
+        php artisan route:cache
+        php artisan optimize
 
-           
-
-            echo "Deployment completed"
+        echo "Fix permissions"
+        chown -R www-data:www-data /var/www/pmtoolapi
+        chmod -R 775 storage bootstrap/cache
+```
