@@ -110,15 +110,15 @@ return [
         // 'mysql_medics_hrms' => [
         //     'driver' => 'mysql',
         //     'read' => [
-        //         'host' => ['69.62.78.109'],
+        //         'host' => ['31.97.225.238'],
         //     ],
         //     'write' => [
-        //         'host' => ['69.62.78.109'],
+        //         'host' => ['31.97.225.238'],
         //     ],
-        //     'port' => '3307',
-        //     'database' => 'medicshrms',
-        //     'username' => 'medicsapp',
-        //     'password' => 'YUra@2025',
+        //     'port' => '3306',
+        //     'database' => 'u925800196_hrmsapi',
+        //     'username' => 'u925800196_hrmsapi',
+        //     'password' => 'JmAeL?5uE',
         //     'charset' => 'utf8mb4',  // Ensure proper character encoding
         //     'collation' => 'utf8mb4_unicode_ci',
         //     'strict' => false, // Ensure strict mode for better performance
@@ -127,18 +127,19 @@ return [
         //         PDO::ATTR_PERSISTENT => true,
         //     ]) : [],
         // ],
-        'mysql_medics_hrms' => [
+
+         'mysql_medics_hrms' => [
             'driver' => 'mysql',
             'read' => [
-                'host' => ['31.97.225.238'],
+                'host' => ['69.62.78.109'],
             ],
             'write' => [
-                'host' => ['31.97.225.238'],
+                'host' => ['69.62.78.109'],
             ],
-            'port' => '3306',
-            'database' => 'u925800196_hrmsapi',
-            'username' => 'u925800196_hrmsapi',
-            'password' => 'JmAeL?5uE',
+            'port' => '3307',
+            'database' => 'medicshrms',
+            'username' => 'medicsapp',
+            'password' => 'YUra@2025',
             'charset' => 'utf8mb4',  // Ensure proper character encoding
             'collation' => 'utf8mb4_unicode_ci',
             'strict' => false, // Ensure strict mode for better performance
