@@ -8485,6 +8485,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             ->values()
             ->toArray();
 
+
         // Process position-wise counts
         if (in_array('7', $positions)) {
             $writerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
