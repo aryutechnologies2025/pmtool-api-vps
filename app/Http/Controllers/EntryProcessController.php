@@ -8481,7 +8481,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             })
             ->get()
             ->pluck('project_id')
-            ->unique()
+            ->unique('project_id')
             ->values()
             ->toArray();
 
