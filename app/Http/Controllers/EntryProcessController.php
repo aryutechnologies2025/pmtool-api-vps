@@ -9083,7 +9083,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             ->whereIn('project_id', $projectIdsTask)
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
+                    ->whereNotIn('process_status', ['completed', 'withdrawal'])
                     ->whereDoesntHave('projectAcceptStatust', function ($sq) {
                         $sq->where('status', 'rejected');
                     })
@@ -10583,7 +10583,6 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             'freelancet_payment_count' => $freelancerPaymentCount,
             'inhouseExternal' => $this->inhouseExternal($request, $fromDate, $toDate)->getData(true),
             'monthWiseTable' => $this->monthWiseTable($position, $fromDate, $toDate),
-            'abc'=>"abc"
             // 'monthWiseTable' => $this->monthWiseTable($position, $selectedMonth),
 
         ]);
