@@ -9359,6 +9359,7 @@ class EntryProcessController extends Controller
             'freelancet_payment_count' => $freelancerPaymentCount,
             'inhouseExternal' => $this->inhouseExternal($request, $fromDate, $toDate)->getData(true),
             'monthWiseTable' => $this->monthWiseTable($position, $fromDate, $toDate),
+            'abc' => 'abc'
             // 'monthWiseTable' => $this->monthWiseTable($position, $selectedMonth),
 
         ]);
