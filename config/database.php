@@ -131,10 +131,10 @@ return [
          'mysql_medics_hrms' => [
             'driver' => 'mysql',
             'read' => [
-                'host' => ['69.62.78.109'],
+                'host' => ['127.0.0.1'],
             ],
             'write' => [
-                'host' => ['69.62.78.109'],
+                'host' => ['127.0.0.1'],
             ],
             'port' => '3307',
             'database' => 'medicshrms',
