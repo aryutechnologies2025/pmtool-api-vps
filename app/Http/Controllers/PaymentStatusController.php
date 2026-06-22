@@ -165,6 +165,7 @@ class PaymentStatusController extends Controller
                 $paymentDetails->payment_id = $details->id; // Assuming the payment ID relates to project_id
                 $paymentDetails->payment = $pay['amount']; // Amount from payment details
                 $paymentDetails->payment_date = $pay['date']; // Payment date from payment details
+                $paymentDetails->payment_status = $pay['payment_status'] ?? null;
                 $paymentDetails->save();
             }
         }
