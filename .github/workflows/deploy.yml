@@ -1,11 +1,11 @@
-name: Deploy Laravel API to VPS
+//name: Deploy Laravel API to VPS
 
 on:
   push:
     branches:
       - main
 
-jobs:
+//jobs:
   deploy:
     runs-on: ubuntu-latest
 
@@ -13,13 +13,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Deploy to VPS via SSH
+    //  - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
+      //    host: ${{ secrets.VPS_HOST }}
+       //   username: ${{ secrets.VPS_USER }}
+        //  key: ${{ secrets.VPS_SSH_KEY }}
+         // script: |
             cd /var/www/pmtoolapi
 
             echo "Pull latest code"
