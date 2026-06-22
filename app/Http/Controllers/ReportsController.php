@@ -1064,10 +1064,19 @@ class ReportsController extends Controller
         if ($toDate) {
             $query->whereDate('entry_date', '<=', $toDate);
         }
+        // if ($request->filled('id')) {
+        //     $ids = explode(',', $request->id);
+        //     $query->whereIn('id', $ids);
+        // }
         if ($request->filled('id')) {
-            $ids = explode(',', $request->id);
-            $query->whereIn('id', $ids);
-        }
+    $idString = $request->id;
+    // Remove brackets if present
+    $idString = trim($idString, '[]');
+    $ids = explode(',', $idString);
+    // Trim whitespace from each ID
+    $ids = array_map('trim', $ids);
+    $query->whereIn('id', $ids);
+}
 
         if ($request->filled('project_id')) {
             $query->where('project_id', $request->project_id);
@@ -1196,1135 +1205,974 @@ class ReportsController extends Controller
         return response()->json($projectList);
     }
 
-    public function projectPending(Request $request)
-    {
-        $fromDate = $request->query('from_date');
-        $toDate = $request->query('to_date');
-        $type_of_work = ['statistics', 'thesis', 'others', 'manuscript'];
+ public function projectPending(Request $request)
+{
+    // $fromDate = $request->query('from_date');
+    // $toDate = $request->query('to_date');
+    $type_of_work = ['statistics', 'thesis', 'others', 'manuscript'];
 
-        // Get People IDs
-        $peopleIds_admin = People::where('position', 'Admin')->pluck('id')->filter()->values()->toArray();
-        $peopleIds_pm = People::where('position', '13')->pluck('id')->filter()->values()->toArray();
-        $peopleIds_sme = People::where('position', '28')->pluck('id')->filter()->values()->toArray();
-        $peopleIds_pm = People::where('position', '27')->pluck('id')->filter()->values()->toArray();
+    // Get People IDs
+    $peopleIds_admin = People::where('position', 'Admin')->pluck('id')->filter()->values()->toArray();
+    $peopleIds_pm = People::where('position', '13')->pluck('id')->filter()->values()->toArray();
+    $peopleIds_sme = People::where('position', '28')->pluck('id')->filter()->values()->toArray();
+    $peopleIds_pm_second = People::where('position', '27')->pluck('id')->filter()->values()->toArray();
 
-        // Admin entries
-        $admin_to_list = EntryProcessModel::where('is_deleted', 0)
-            // ->whereIn('created_by', $peopleIds_admin)
-            ->where('process_status', 'in_progress')
-            ->where('process_status', '!=', 'completed')
-            ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-            ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-            ->select('id', 'type_of_work', 'process_status', 'created_by')
-            ->get();
+    // Admin entries
+    $admin_to_list = EntryProcessModel::where('is_deleted', 0)
+        ->where('process_status', 'in_progress')
+        ->where('process_status', '!=', 'completed')
+        ->select('id', 'type_of_work', 'process_status', 'created_by')
+        ->get();
 
-        // PM entries
-        $pm_to_list = EntryProcessModel::where('is_deleted', 0)
-            // ->whereIn('created_by', $peopleIds_pm)
-            ->whereIn('process_status', ['not_assigned'])
-            // ->where('process_status', '!=', 'completed')
-            ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-            ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-            ->select('id', 'type_of_work', 'process_status', 'created_by')
-            ->get();
+    // PM entries
+    $pm_to_list = EntryProcessModel::where('is_deleted', 0)
+        ->whereIn('process_status', ['not_assigned'])
+        ->select('id', 'type_of_work', 'process_status', 'created_by')
+        ->get();
 
-        $pm_count = $pm_to_list->count();
+    $pm_count = $pm_to_list->count();
 
-        $pm_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($pm_to_list as $item) {
-            $key = $item->type_of_work ?? '';
-            if (array_key_exists($key, $pm_by_type_of_work)) {
-                $pm_by_type_of_work[$key]++;
-            } else {
-                $pm_by_type_of_work[''] = ($pm_by_type_of_work[''] ?? 0) + 1;
-            }
+    $pm_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($pm_to_list as $item) {
+        $key = $item->type_of_work ?? '';
+        if (array_key_exists($key, $pm_by_type_of_work)) {
+            $pm_by_type_of_work[$key]++;
+        } else {
+            $pm_by_type_of_work[''] = ($pm_by_type_of_work[''] ?? 0) + 1;
         }
-        $writer_tc_list = EntryProcessModel::with('projectStatus')
-            ->whereHas('projectStatus', function ($query) {
-                $query->whereIn('status', ['rejected'])
-                    ->orderBy('created_at', 'desc');
-            })
-            ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
-            ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-            ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-            // ->whereYear('entry_date', $currentYear)
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        $writer_tc_count = $writer_tc_list->count();
-
-        $rejected_tc_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($writer_tc_list as $item) {
-            $key = $item->type_of_work ?? '';
-            if (array_key_exists($key, $rejected_tc_by_type_of_work)) {
-                $rejected_tc_by_type_of_work[$key]++;
-            } else {
-                $rejected_tc_by_type_of_work[''] = ($rejected_tc_by_type_of_work[''] ?? 0) + 1;
-            }
-        }
-
-        $notAssigned_tc_count = ProjectAssignDetails::where('type', 'team_coordinator')
-            ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
-            ->where('status', 'completed')
-            ->whereNotIn('status', ['need_support'])
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                    ->whereDoesntHave('writerData', function ($sq) {
-                        $sq->whereIn('status', ['correction', 'to_do', 'on_going']);
-                    })
-                    ->whereDoesntHave('reviewerData', function ($sq) {
-                        $sq->whereIn('status', ['correction', 'to_do', 'need_support', 'revert', 'on_going']);
-                    });
-            })
-            ->select('project_id', 'status', 'type', 'updated_at')
-            ->orderBy('updated_at', 'desc')
-            ->get()
-            ->unique('project_id');
-
-        $notAssigned_count = $notAssigned_tc_count->count();
-        $notAssigned_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($notAssigned_tc_count as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)
-                ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                ->first();
-
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $notAssigned_by_type_of_work)) {
-                $notAssigned_by_type_of_work[$key]++;
-            } else {
-                $notAssigned_by_type_of_work[''] = ($notAssigned_by_type_of_work[''] ?? 0) + 1;
-            }
-        }
-        $entriesTask = EntryProcessModel::select(
-            'id',
-            'project_id',
-            'type_of_work',
-            'process_status',
-            'hierarchy_level',
-            'projectduration',
-            'created_by'
-        )
-            ->where('is_deleted', 0)
-            ->get();
-
-        /** FIX #1 */
-        $projectIdsTask = $entriesTask->pluck('project_id')->unique()->toArray();
-
-        $writerCompletedProjects = ProjectAssignDetails::with([
-            'projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at',
-        ])
-            ->where('status', 'completed')
-            ->where('type', 'writer')
-            ->whereIn('project_id', $projectIdsTask)
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                    ->whereDoesntHave('projectAcceptStatust', function ($sq) {
-                        $sq->where('status', 'rejected');
-                    })
-                    ->whereDoesntHave('writerData', function ($sq) {
-                        $sq->whereIn('status', ['to_do', 'on_going']);
-                    })
-                    ->whereDoesntHave('reviewerData', function ($sq) {
-                        $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
-                    });
-            })
-            ->select('project_id', 'status', 'type', 'updated_at')
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        $allWriterProjects = $writerCompletedProjects->unique('project_id')->values();
-        $writerProjectIds = $allWriterProjects->pluck('project_id')->toArray();
-
-        $reviewerProjects = ProjectAssignDetails::where('type', 'reviewer')
-            ->whereIn('project_id', $writerProjectIds)
-            ->pluck('project_id')
-            ->unique()
-            ->toArray();
-
-        $writerWithoutReviewer = $allWriterProjects->filter(function ($writer) use ($reviewerProjects) {
-            return ! in_array($writer->project_id, $reviewerProjects);
+    }
+    
+    $writer_tc_list = EntryProcessModel::with('projectStatus')
+        ->whereHas('projectStatus', function ($query) {
+            $query->whereIn('status', ['rejected'])
+                ->orderBy('created_at', 'desc');
         })
-            ->unique('project_id')
-            ->sortByDesc('updated_at')
-            ->values();
+        ->where('is_deleted', 0)
+        ->where('process_status', '!=', 'completed')
+        ->orderBy('created_at', 'desc')
+        ->get();
 
-        $writerWithoutReviewer_count = $writerWithoutReviewer->count();
+    $writer_tc_count = $writer_tc_list->count();
 
-        $entryMap = EntryProcessModel::whereIn(
-            'project_id',
-            $writerWithoutReviewer->pluck('project_id')
-        )
-            ->pluck('type_of_work', 'project_id')
-            ->toArray();
+    // This is projectStatusList (rejected projects)
+    $projectStatusList = $writer_tc_list;
 
-        $writerWithoutReviewer_by_type_of_work = [];
-
-        foreach ($writerWithoutReviewer as $item) {
-            $key = $entryMap[$item->project_id] ?? 'unknown';
-            $writerWithoutReviewer_by_type_of_work[$key] =
-                ($writerWithoutReviewer_by_type_of_work[$key] ?? 0) + 1;
+    $rejected_tc_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($writer_tc_list as $item) {
+        $key = $item->type_of_work ?? '';
+        if (array_key_exists($key, $rejected_tc_by_type_of_work)) {
+            $rejected_tc_by_type_of_work[$key]++;
+        } else {
+            $rejected_tc_by_type_of_work[''] = ($rejected_tc_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        // SME entries
-        $sme_to_list = ProjectAssignDetails::with('projectData')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    // ->whereDate('entry_date', '>=', $fromDate)
-                    // ->whereDate('entry_date', '<=', $toDate)
-                    ->where('process_status', '!=', 'completed')
+    $notAssigned_tc_count = ProjectAssignDetails::where('type', 'team_coordinator')
+        ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
+        ->where('status', 'completed')
+        ->whereNotIn('status', ['need_support'])
+        ->whereHas('projectData', function ($query)  {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed')
+                ->whereDoesntHave('writerData', function ($sq) {
+                    $sq->whereIn('status', ['correction', 'to_do', 'on_going']);
+                })
+                ->whereDoesntHave('reviewerData', function ($sq) {
+                    $sq->whereIn('status', ['correction', 'to_do', 'need_support', 'revert', 'on_going']);
+                });
+        })
+        ->select('project_id', 'status', 'type', 'updated_at')
+        ->orderBy('updated_at', 'desc')
+        ->get()
+        ->unique('project_id');
 
-                    ->whereHas('writerData', function ($wq) {
+    $notAssigned_count = $notAssigned_tc_count->count();
+    $notAssigned_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($notAssigned_tc_count as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $notAssigned_by_type_of_work)) {
+            $notAssigned_by_type_of_work[$key]++;
+        } else {
+            $notAssigned_by_type_of_work[''] = ($notAssigned_by_type_of_work[''] ?? 0) + 1;
+        }
+    }
+    
+    $entriesTask = EntryProcessModel::select(
+        'id',
+        'project_id',
+        'type_of_work',
+        'process_status',
+        'hierarchy_level',
+        'projectduration',
+        'created_by'
+    )
+        ->where('is_deleted', 0)
+        ->get();
+
+    $projectIdsTask = $entriesTask->pluck('project_id')->unique()->toArray();
+
+    $writerCompletedProjects = ProjectAssignDetails::with([
+        'projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at',
+    ])
+        ->where('status', 'completed')
+        ->where('type', 'writer')
+        ->whereIn('project_id', $projectIdsTask)
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed')
+                ->whereDoesntHave('projectAcceptStatust', function ($sq) {
+                    $sq->where('status', 'rejected');
+                })
+                ->whereDoesntHave('writerData', function ($sq) {
+                    $sq->whereIn('status', ['to_do', 'on_going']);
+                })
+                ->whereDoesntHave('reviewerData', function ($sq) {
+                    $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
+                });
+        })
+        ->select('project_id', 'status', 'type', 'updated_at')
+        ->orderBy('created_at', 'desc')
+        ->get();
+
+    $allWriterProjects = $writerCompletedProjects->unique('project_id')->values();
+    $writerProjectIds = $allWriterProjects->pluck('project_id')->toArray();
+
+    $reviewerProjects = ProjectAssignDetails::where('type', 'reviewer')
+        ->whereIn('project_id', $writerProjectIds)
+        ->pluck('project_id')
+        ->unique()
+        ->toArray();
+
+    $writerWithoutReviewer = $allWriterProjects->filter(function ($writer) use ($reviewerProjects) {
+        return ! in_array($writer->project_id, $reviewerProjects);
+    })
+        ->unique('project_id')
+        ->sortByDesc('updated_at')
+        ->values();
+
+    $writerWithoutReviewer_count = $writerWithoutReviewer->count();
+
+    $entryMap = EntryProcessModel::whereIn(
+        'project_id',
+        $writerWithoutReviewer->pluck('project_id')
+    )
+        ->pluck('type_of_work', 'project_id')
+        ->toArray();
+
+    $writerWithoutReviewer_by_type_of_work = [];
+
+    foreach ($writerWithoutReviewer as $item) {
+        $key = $entryMap[$item->project_id] ?? 'unknown';
+        $writerWithoutReviewer_by_type_of_work[$key] =
+            ($writerWithoutReviewer_by_type_of_work[$key] ?? 0) + 1;
+    }
+
+    // SME entries
+    $sme_to_list = ProjectAssignDetails::with('projectData')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed')
+                ->where(function($q) {
+                    $q->whereHas('writerData', function ($wq) {
                         $wq->whereIn('status', ['rejected', 'revert']);
-
                     })
-
-                    ->whereHas('reviewerData', function ($wq) {
+                    ->orWhereHas('reviewerData', function ($wq) {
                         $wq->whereIn('status', ['rejected', 'revert']);
                     })
-
-                    ->whereHas('statisticanData', function ($wq) {
+                    ->orWhereHas('statisticanData', function ($wq) {
                         $wq->whereIn('status', ['rejected', 'revert']);
-                    })
-
-                    ->whereHas('tcData', function ($wq) {
-                        $wq->where('type', 'team_coordinator')
-                            ->whereIn('type_sme', [
-                                'writer',
-                                'Publication Manager',
-                                'reviewer',
-                                '2nd_writer',
-                            ]);
                     });
-            })
-            ->get()
-            ->unique('project_id')
-            ->values();
+                })
+                ->whereHas('tcData', function ($wq) {
+                    $wq->where('type', 'team_coordinator')
+                        ->whereIn('type_sme', [
+                            'writer',
+                            'Publication Manager',
+                            'reviewer',
+                            '2nd_writer',
+                        ]);
+                });
+        })
+        ->get()
+        ->unique('project_id')
+        ->values();
 
-        // dd($sme_to_list);
-
-        $tc_merged = $pm_to_list->merge(
-            $sme_to_list->map(function ($item) use ($fromDate, $toDate) {
-                $ep = EntryProcessModel::where('project_id', $item->project_id)
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-
-                    ->first();
-                if ($ep) {
-                    $item->type_of_work = $ep->type_of_work;
-                } else {
-                    $item->type_of_work = '';
-                }
-
-                return $item;
-            })
-        );
-
-        $tc_total_count = $tc_merged->count();
-
-        $tc_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($tc_merged as $item) {
-            $key = $item->type_of_work ?? '';
-            if (array_key_exists($key, $tc_by_type_of_work)) {
-                $tc_by_type_of_work[$key]++;
+    $tc_merged = $pm_to_list->merge(
+        $sme_to_list->map(function ($item) {
+            $ep = EntryProcessModel::where('project_id', $item->project_id)->first();
+            if ($ep) {
+                $item->type_of_work = $ep->type_of_work;
             } else {
-                $tc_by_type_of_work[''] = ($tc_by_type_of_work[''] ?? 0) + 1;
+                $item->type_of_work = '';
             }
+            return $item;
+        })
+    );
+
+    $tc_total_count = $tc_merged->count();
+
+    $tc_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($tc_merged as $item) {
+        $key = $item->type_of_work ?? '';
+        if (array_key_exists($key, $tc_by_type_of_work)) {
+            $tc_by_type_of_work[$key]++;
+        } else {
+            $tc_by_type_of_work[''] = ($tc_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        // Statistics
-        $statisticsStatus = ['to_do', 'client_review', 'correction'];
-        $pending_statistics = ProjectAssignDetails::where('type', 'statistican')
-            ->whereIn('status', $statisticsStatus)
-            ->where('status', '!=', 'completed')
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->get();
-        $statistican_count = $pending_statistics->count();
-        $statistics_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($pending_statistics as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $statistics_by_type_of_work)) {
-                $statistics_by_type_of_work[$key]++;
-            } else {
-                $statistics_by_type_of_work[''] = ($statistics_by_type_of_work[''] ?? 0) + 1;
-            }
+    // Statistics
+    $statisticsStatus = ['to_do', 'client_review', 'correction'];
+    $pending_statistics = ProjectAssignDetails::where('type', 'statistican')
+        ->whereIn('status', $statisticsStatus)
+        ->where('status', '!=', 'completed')
+        ->whereHas('projectData', function ($query)  {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->get();
+    $statistican_count = $pending_statistics->count();
+    $statistics_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($pending_statistics as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $statistics_by_type_of_work)) {
+            $statistics_by_type_of_work[$key]++;
+        } else {
+            $statistics_by_type_of_work[''] = ($statistics_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        // Writer
-        $writerStatus = ['to_do', 'plag_correction', 'correction'];
-        $pending_writer = ProjectAssignDetails::where('type', 'writer')
-            ->whereIn('status', $writerStatus)
-            ->where('status', '!=', 'completed')
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->get();
+    // Writer
+    $writerStatus = ['to_do', 'plag_correction', 'correction'];
+    $pending_writer = ProjectAssignDetails::where('type', 'writer')
+        ->whereIn('status', $writerStatus)
+        ->where('status', '!=', 'completed')
+        ->whereHas('projectData', function ($query)  {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->get();
 
-        $writer_count = $pending_writer->count();
+    $writer_count = $pending_writer->count();
 
-        $writer_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($pending_writer as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $writer_by_type_of_work)) {
-                $writer_by_type_of_work[$key]++;
-            } else {
-                $writer_by_type_of_work[''] = ($writer_by_type_of_work[''] ?? 0) + 1;
-            }
+    $writer_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($pending_writer as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $writer_by_type_of_work)) {
+            $writer_by_type_of_work[$key]++;
+        } else {
+            $writer_by_type_of_work[''] = ($writer_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        // Reviewer
-        // $reviewerStatus = ['to_do', 'plag_correction', 'correction'];
-        $pending_reviewer = ProjectAssignDetails::where('type', 'reviewer')
-            // ->whereIn('status', $reviewerStatus)
-            ->where('status', '!=', 'completed')
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->get();
+    // Reviewer
+    $pending_reviewer = ProjectAssignDetails::where('type', 'reviewer')
+        ->where('status', '!=', 'completed')
+        ->whereHas('projectData', function ($query)  {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->get();
 
-        $reviewer_count = $pending_reviewer->count();
+    $reviewer_count = $pending_reviewer->count();
 
-        $reviewer_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($pending_reviewer as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $reviewer_by_type_of_work)) {
-                $reviewer_by_type_of_work[$key]++;
-            } else {
-                $reviewer_by_type_of_work[''] = ($reviewer_by_type_of_work[''] ?? 0) + 1;
-            }
+    $reviewer_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($pending_reviewer as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $reviewer_by_type_of_work)) {
+            $reviewer_by_type_of_work[$key]++;
+        } else {
+            $reviewer_by_type_of_work[''] = ($reviewer_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        // Author
-        $pending_author = EntryProcessModel::where('is_deleted', 0)
-            ->where('process_status', 'pending_author')
-            ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-            ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-            ->get();
+    // Author
+    $pending_author = EntryProcessModel::where('is_deleted', 0)
+        ->where('process_status', 'pending_author')
+        ->get();
 
-        $author_count = $pending_author->count();
+    $author_count = $pending_author->count();
 
-        $author_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($pending_author as $item) {
-            $key = $item->type_of_work ?? '';
-            if (array_key_exists($key, $author_by_type_of_work)) {
-                $author_by_type_of_work[$key]++;
-            } else {
-                $author_by_type_of_work[''] = ($author_by_type_of_work[''] ?? 0) + 1;
-            }
+    $author_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($pending_author as $item) {
+        $key = $item->type_of_work ?? '';
+        if (array_key_exists($key, $author_by_type_of_work)) {
+            $author_by_type_of_work[$key]++;
+        } else {
+            $author_by_type_of_work[''] = ($author_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        // SME
-        // $supportStatus = ['need_support', 'completed','submit_to_journal', 'pending_author', 'resubmission', 'reviewer_comments'];
-        $pending_sme = ProjectAssignDetails::whereIn('type', ['writer', 'reviewer', 'statistican'])
-            ->whereIn('status', ['completed', 'need_support'])
-            ->whereHas('projectData', function ($query) use ($peopleIds_pm, $fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                    ->whereHas('journalData', function ($wq) use ($peopleIds_pm) {
-                        $wq->whereIn('status', [
-                            'submit_to_journal',
-                            'pending_author',
-                            'resubmission',
-                            'reviewer_comments',
-                        ])
-                            ->where('created_by', $peopleIds_pm);
-                    });
-            })
-            ->get()
-            ->unique('project_id')
-            ->values();
+    // SME
+    $pending_sme = ProjectAssignDetails::whereIn('type', ['writer', 'reviewer', 'statistican'])
+        ->whereIn('status', ['completed', 'need_support'])
+        ->whereHas('projectData', function ($query) use ($peopleIds_pm) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed')
+                ->whereHas('journalData', function ($wq) use ($peopleIds_pm) {
+                    $wq->whereIn('status', [
+                        'submit_to_journal',
+                        'pending_author',
+                        'resubmission',
+                        'reviewer_comments',
+                    ])
+                    ->whereIn('created_by', $peopleIds_pm);
+                });
+        })
+        ->get()
+        ->unique('project_id')
+        ->values();
 
-        $sme_count = $pending_sme->count();
+    $sme_count = $pending_sme->count();
 
-        $sme_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($pending_sme as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $sme_by_type_of_work)) {
-                $sme_by_type_of_work[$key]++;
-            } else {
-                $sme_by_type_of_work[''] = ($sme_by_type_of_work[''] ?? 0) + 1;
-            }
+    $sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($pending_sme as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $sme_by_type_of_work)) {
+            $sme_by_type_of_work[$key]++;
+        } else {
+            $sme_by_type_of_work[''] = ($sme_by_type_of_work[''] ?? 0) + 1;
         }
-        $entries = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')
-            ->where('is_deleted', 0)
-            ->get();
+    }
+    
+    $entries = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')
+        ->where('is_deleted', 0)
+        ->get();
 
-        $totalproject = $entries->count();
-        $projectids = $entries->pluck('id')->toArray();
-        $reviewerist_sme = ProjectAssignDetails::with(['documents', 'projectData'])
-            ->whereIn('project_id', $projectids)
-            ->where('type', 'reviewer')
-            ->whereIn('status', ['need_support', 'completed'])
-            ->where(function ($q) use ($fromDate, $toDate) {
-                $q->where('status', 'need_support')
-                    ->orWhereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                        $query->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
-                            ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                            ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                            ->whereDoesntHave('writerData', function ($wq) {
-                                $wq->whereIn('status', ['to_do', 'correction', 'need_support']);
+    $totalproject = $entries->count();
+    $projectids = $entries->pluck('id')->toArray();
+    
+    $reviewerist_sme = ProjectAssignDetails::with(['documents', 'projectData'])
+        ->whereIn('project_id', $projectids)
+        ->where('type', 'reviewer')
+        ->whereIn('status', ['need_support', 'completed'])
+        ->where(function ($q)  {
+            $q->where('status', 'need_support')
+                ->orWhereHas('projectData', function ($query)  {
+                    $query->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
+                        ->whereDoesntHave('writerData', function ($wq) {
+                            $wq->whereIn('status', ['to_do', 'correction', 'need_support']);
+                        })
+                        ->whereDoesntHave('reviewerData', function ($rq) {
+                            $rq->where('status', 'correction');
+                        })
+                        ->whereHas('reviewerData', function ($rq) {
+                            $rq->where('status', 'completed');
+                        })
+                        ->whereDoesntHave('statisticanData', function ($wq) {
+                            $wq->whereIn('status', ['correction', 'need_support']);
+                        })
+                        ->whereDoesntHave('tcData', function ($tq) {
+                            $tq->where('type', 'team_coordinator')
+                                ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer']);
+                        })
+                        ->where(function ($query) {
+                            $query->whereDoesntHave('journalData', function ($jq) {
+                                $jq->whereIn('status', [
+                                    'pending_author',
+                                    'rejected',
+                                    'reviewer_comments',
+                                    'resubmission',
+                                    'submit_to_journal',
+                                    'published',
+                                    'submitted',
+                                    'withdrawal',
+                                ]);
                             })
-                            ->whereDoesntHave('reviewerData', function ($rq) {
-                                $rq->where('status', 'correction');
-                            })
-                            ->whereHas('reviewerData', function ($rq) {
-                                $rq->where('status', 'completed');
-                            })
-                            ->whereDoesntHave('statisticanData', function ($wq) {
-                                $wq->whereIn('status', ['correction', 'need_support']);
-                            })
-                            ->whereDoesntHave('tcData', function ($tq) {
-                                $tq->where('type', 'team_coordinator')
-                                    ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer']);
-                            })
-                            ->where(function ($query) {
-                                $query->whereDoesntHave('journalData', function ($jq) {
-                                    $jq->whereIn('status', [
-                                        'pending_author',
-                                        'rejected',
-                                        'reviewer_comments',
-                                        'resubmission',
-                                        'submit_to_journal',
-                                        'published',
-                                        'submitted',
-                                        'withdrawal',
-                                    ]);
-                                })
-                                    ->orWhereHas('reviewerData', function ($sq) {
-                                        $sq->where('status', 'need_support');
-                                    });
-                            });
-                    });
-            })
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->unique('project_id')
-            ->values();
+                                ->orWhereHas('reviewerData', function ($sq) {
+                                    $sq->where('status', 'need_support');
+                                });
+                        });
+                });
+        })
+        ->orderBy('created_at', 'desc')
+        ->get()
+        ->unique('project_id')
+        ->values();
 
-        $reviewerist_sme_count = $reviewerist_sme->count();
+    $reviewerist_sme_count = $reviewerist_sme->count();
 
-        $reviewerist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($reviewerist_sme as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $reviewerist_sme_by_type_of_work)) {
-                $reviewerist_sme_by_type_of_work[$key]++;
-            } else {
-                $reviewerist_sme_by_type_of_work[''] = ($reviewerist_sme_by_type_of_work[''] ?? 0) + 1;
-            }
+    $reviewerist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($reviewerist_sme as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $reviewerist_sme_by_type_of_work)) {
+            $reviewerist_sme_by_type_of_work[$key]++;
+        } else {
+            $reviewerist_sme_by_type_of_work[''] = ($reviewerist_sme_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        $writerList = ProjectAssignDetails::with([
-            'documents',
-            'projectData' => function ($query) {
-                $query->select(
-                    'id',
-                    'type_of_work',
-                    'project_id',
-                    'title',
-                    'process_status',
-                    'hierarchy_level',
-                    'client_name',
-                    'entry_date'
-                );
-            },
-        ])
-            ->whereIn('project_id', $projectids)
-            ->where('type', 'writer')
-            ->where('status', 'need_support')
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('process_status', '!=', 'completed')
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate));
-            })
-            ->orderBy('created_at', 'desc')
-            ->select(
+    $writerList = ProjectAssignDetails::with([
+        'documents',
+        'projectData' => function ($query) {
+            $query->select(
                 'id',
-                'status',
+                'type_of_work',
                 'project_id',
-                'assign_user',
-                'assign_date',
-                'type',
-                'comments',
-                'type_of_article',
-                'review'
-            )
-            ->get()
-            ->unique('project_id')
-            ->values();
-
-        $writerList_sme_count = $writerList->count();
-
-        $writerList_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($writerList as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $writerList_sme_by_type_of_work)) {
-                $writerList_sme_by_type_of_work[$key]++;
-            } else {
-                $writerList_sme_by_type_of_work[''] = ($writerList_sme_by_type_of_work[''] ?? 0) + 1;
-            }
-        }
-
-        $statisticanlist = ProjectAssignDetails::with(['documents', 'projectData'])
-            ->whereIn('project_id', $projectids)
-            ->where('type', 'statistican')
-            ->orderBy('created_at', 'desc')
-            ->where(function ($q) use ($fromDate, $toDate) {
-                $q->whereIn('status', ['need_support', 'completed'])
-                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                        $query->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
-                            ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                            ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                            ->whereDoesntHave('writerData', function ($wq) {
-                                $wq->whereIn('status', ['to_do', 'correction', 'need_support']);
-                            })
-                            ->whereDoesntHave('reviewerData', function ($wq) {
-                                $wq->whereIn('status', ['correction', 'need_support']);
-                            })
-                            ->whereDoesntHave('statisticanData', function ($sq) {
-                                $sq->where('status', 'correction');
-                            })
-                            ->whereDoesntHave('tcData', function ($sq) {
-                                $sq->where('status', 'correction')
-                                    ->where('type', 'team_coordinator');
-                            })
-                            ->where(function ($query) {
-                                $query->whereDoesntHave('journalData', function ($jq) {
-                                    $jq->whereIn('status', [
-                                        'pending_author',
-                                        'rejected',
-                                        'reviewer_comments',
-                                        'resubmission',
-                                        'submit_to_journal',
-                                        'published',
-                                        'submitted',
-                                        'withdrawal',
-                                    ]);
-                                })
-                                    ->orWhereHas('statisticanData', function ($sq) {
-                                        $sq->where('status', 'need_support');
-                                    });
-                            });
-                    });
-            })
-            ->get()
-            ->unique('project_id')
-            ->values();
-
-        $statisticanlist_sme_count = $statisticanlist->count();
-
-        $statisticanlist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($statisticanlist as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $statisticanlist_sme_by_type_of_work)) {
-                $statisticanlist_sme_by_type_of_work[$key]++;
-            } else {
-                $statisticanlist_sme_by_type_of_work[''] = ($statisticanlist_sme_by_type_of_work[''] ?? 0) + 1;
-            }
-        }
-
-        $smelist = ProjectAssignDetails::with(['projectData'])
-            ->whereIn('project_id', $projectids)
-            ->where('type', 'sme')
-            ->where('status', 'need_support')
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('process_status', '!=', 'completed')
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-
-                    ->whereDoesntHave('tcData', function ($sq) {
-                        $sq->where('status', 'correction')
-                            ->where('type', 'team_coordinator');
-                    });
-            })
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->unique('project_id')
-            ->values();
-
-        $smelist_sme_count = $smelist->count();
-
-        $smelist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($smelist as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $smelist_sme_by_type_of_work)) {
-                $smelist_sme_by_type_of_work[$key]++;
-            } else {
-                $smelist_sme_by_type_of_work[''] = ($smelist_sme_by_type_of_work[''] ?? 0) + 1;
-            }
-        }
-
-        $publication_list = ProjectAssignDetails::with(['projectData'])
-            ->whereIn('created_by', $peopleIds_pm)
-            ->whereIn('project_id', $projectids)
-            ->where('type', 'publication_manager')
-            ->orderBy('created_at', 'desc')
-            ->whereIn('status', ['pending_author', 'rejected', 'reviewer_comments', 'resubmission', 'published', 'submitted'])
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-                    ->whereDoesntHave('writerData', function ($wq) {
-                        $wq->whereIn('status', ['correction', 'need_support']);
-                    })
-                    ->whereDoesntHave('reviewerData', function ($wq) {
-                        $wq->whereIn('status', ['correction', 'need_support']);
-                    })
-                    ->whereDoesntHave('statisticanData', function ($sq) {
-                        $sq->whereIn('status', ['correction', 'need_support']);
-                    })
-                    ->whereDoesntHave('tcData', function ($tq) {
-                        $tq->where('status', 'correction')
-                            ->where('type', 'team_coordinator')
-                            ->where('type_sme', 'Publication Manager');
-                    });
-            })
-            ->get()
-            ->unique('project_id')
-            ->values();
-
-        $publication_list_count = $publication_list->count();
-
-        $publication_list_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($publication_list as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $publication_list_by_type_of_work)) {
-                $publication_list_by_type_of_work[$key]++;
-            } else {
-                $publication_list_by_type_of_work[''] = ($publication_list_by_type_of_work[''] ?? 0) + 1;
-            }
-        }
-
-        // Publication
-        $publicationStatus = ['submit_to_journal', 'pending_author', 'rejected', 'withdrawal', 'resubmission', 'reviewer_comments'];
-        $pending_publication = ProjectAssignDetails::where('type', 'publication_manager')
-            ->whereIn('status', $publicationStatus)
-            ->whereIn('created_by', $peopleIds_sme)
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
-                    ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-                    ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate));
-            })
-            ->get()
-            ->unique('project_id')
-            ->values();
-
-        $publication_count = $pending_publication->count();
-
-        $publication_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($pending_publication as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $publication_by_type_of_work)) {
-                $publication_by_type_of_work[$key]++;
-            } else {
-                $publication_by_type_of_work[''] = ($publication_by_type_of_work[''] ?? 0) + 1;
-            }
-        }
-
-        //TC Dashboard
-
-        $entries = EntryProcessModel::select(
-            'id',
-            'type_of_work',
-            'project_id',
-            'process_status',
-            'hierarchy_level',
-            'projectduration',
-            'created_by'
-        )
-            ->where('is_deleted', 0)
-           // ->whereYear('entry_date', $currentYear)
-            ->when($fromDate, fn ($q) => $q->whereDate('entry_date', '>=', $fromDate))
-            ->when($toDate, fn ($q) => $q->whereDate('entry_date', '<=', $toDate))
-            ->get();
-        $entriesTask = EntryProcessModel::select(
-            'id',
-            'type_of_work',
-            'project_id',
-            'process_status',
-            'hierarchy_level',
-            'projectduration',
-            'created_by'
-        )
-            ->where('is_deleted', 0)
-            // ->whereYear('entry_date', $currentYear)
-            // ->whereRaw("DATE_FORMAT(entry_date, '%Y-%m') = ?", [$selectedMonth])
-            ->get();
-
-        $projectIds = $entries->pluck('id')->unique()->toArray();
-        $projectIdsTask = $entriesTask->pluck('id')->unique()->toArray();
-
-        $statisticianWithoutWriter = ProjectAssignDetails::with([
-            'projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at',
-        ])
-            ->where('type', 'team_coordinator')
-            ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
-            ->where('status', 'completed')
-            ->whereNotIn('status', ['need_support'])
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
-                    ->whereDoesntHave('writerData', function ($sq) {
-                        $sq->whereIn('status', ['correction', 'to_do', 'on_going']);
-                    })
-                    ->whereDoesntHave('reviewerData', function ($sq) {
-                        $sq->whereIn('status', ['correction', 'to_do', 'need_support', 'revert', 'on_going']);
-                    });
-            })
-            ->select('project_id', 'status', 'type', 'updated_at')
-            ->orderBy('updated_at', 'desc')
-            ->get()
-            ->unique('project_id');
-
-        // 9. Writer Completed Projects
-        $writerCompletedProjects = ProjectAssignDetails::with([
-            'projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at',
-        ])
-            ->whereIn('status', ['completed'])
-            ->where('type', 'writer')
-            ->whereIn('project_id', $projectIdsTask)
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
-                    ->whereDoesntHave('projectAcceptStatust', function ($sq) {
-                        $sq->where('status', 'rejected');
-                    })
-                    ->whereDoesntHave('writerData', function ($sq) {
-                        $sq->whereIn('status', ['to_do', 'on_going']);
-                    })
-                    ->whereDoesntHave('reviewerData', function ($sq) {
-                        $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
-                    });
-            })
-            ->select('project_id', 'status', 'type', 'updated_at')
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        $allWriterProjects = $writerCompletedProjects->unique('project_id')->values();
-        $writerProjectIds = $allWriterProjects->pluck('project_id')->unique()->toArray();
-
-        $reviewerProjects = ProjectAssignDetails::where('type', 'reviewer')
-            ->whereIn('project_id', $writerProjectIds)
-            ->pluck('project_id')
-            ->unique()
-            ->toArray();
-
-        $writerWithoutReviewer = $allWriterProjects->filter(function ($writer) use ($reviewerProjects) {
-            $typeOfWork = $writer->projectData->type_of_work ?? null;
-            $projectId = $writer->project_id;
-
-            // Count completed writers
-            $writerCount = ProjectAssignDetails::where('project_id', $projectId)
-                ->where('type', 'writer')
-                ->where('status', 'completed')
-                ->count();
-
-            // if ($typeOfWork === 'thesis' && $writerCount === 2) {
-            //     // Count reviewers assigned
-            //     $reviewerCount = ProjectAssignDetails::where('project_id', $projectId)
-            //         ->where('type', 'reviewer')
-            //         ->count();
-
-            //     return $reviewerCount < 2;
-            // }
-
-            return ! in_array($projectId, $reviewerProjects);
+                'title',
+                'process_status',
+                'hierarchy_level',
+                'client_name',
+                'entry_date'
+            );
+        },
+    ])
+        ->whereIn('project_id', $projectids)
+        ->where('type', 'writer')
+        ->where('status', 'need_support')
+        ->whereHas('projectData', function ($query)  {
+            $query->where('process_status', '!=', 'completed');
         })
-            ->unique('project_id')
-            ->sortByDesc('updated_at')
-            ->values();
+        ->orderBy('created_at', 'desc')
+        ->select(
+            'id',
+            'status',
+            'project_id',
+            'assign_user',
+            'assign_date',
+            'type',
+            'comments',
+            'type_of_article',
+            'review'
+        )
+        ->get()
+        ->unique('project_id')
+        ->values();
 
-        $revert_writer = collect()
-            ->merge($writerWithoutReviewer)
-            ->merge($statisticianWithoutWriter)
-            // ->merge($notAssignedProjects)
-            ->sortByDesc('updated_at')
-            ->unique('project_id')
-            ->values();
+    $writerList_sme_count = $writerList->count();
 
-        $revert_writer_count = $revert_writer->count();
-
-        $revert_writer_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($revert_writer as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $revert_writer_by_type_of_work)) {
-                $revert_writer_by_type_of_work[$key]++;
-            } else {
-                $revert_writer_by_type_of_work[''] = ($revert_writer_by_type_of_work[''] ?? 0) + 1;
-            }
+    $writerList_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($writerList as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $writerList_sme_by_type_of_work)) {
+            $writerList_sme_by_type_of_work[$key]++;
+        } else {
+            $writerList_sme_by_type_of_work[''] = ($writerList_sme_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        $notAssignedProjects = EntryProcessModel::where('process_status', 'not_assigned')
-            ->select('id', 'project_id', 'type_of_work', 'process_status', 'hierarchy_level', 'created_at')
-            ->where('is_deleted', 0)
-            ->orderBy('updated_at', 'desc')
-            ->get();
+    $statisticanlist = ProjectAssignDetails::with(['documents', 'projectData'])
+        ->whereIn('project_id', $projectids)
+        ->where('type', 'statistican')
+        ->orderBy('created_at', 'desc')
+        ->where(function ($q)  {
+            $q->whereIn('status', ['need_support', 'completed'])
+                ->whereHas('projectData', function ($query)  {
+                    $query->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
+                        ->whereDoesntHave('writerData', function ($wq) {
+                            $wq->whereIn('status', ['to_do', 'correction', 'need_support']);
+                        })
+                        ->whereDoesntHave('reviewerData', function ($wq) {
+                            $wq->whereIn('status', ['correction', 'need_support']);
+                        })
+                        ->whereDoesntHave('statisticanData', function ($sq) {
+                            $sq->where('status', 'correction');
+                        })
+                        ->whereDoesntHave('tcData', function ($sq) {
+                            $sq->where('status', 'correction')
+                                ->where('type', 'team_coordinator');
+                        })
+                        ->where(function ($query) {
+                            $query->whereDoesntHave('journalData', function ($jq) {
+                                $jq->whereIn('status', [
+                                    'pending_author',
+                                    'rejected',
+                                    'reviewer_comments',
+                                    'resubmission',
+                                    'submit_to_journal',
+                                    'published',
+                                    'submitted',
+                                    'withdrawal',
+                                ]);
+                            })
+                                ->orWhereHas('statisticanData', function ($sq) {
+                                    $sq->where('status', 'need_support');
+                                });
+                        });
+                });
+        })
+        ->get()
+        ->unique('project_id')
+        ->values();
 
-        $notAssignedProjects_count = $notAssignedProjects->count();
+    $statisticanlist_sme_count = $statisticanlist->count();
 
-        $notAssignedProjects_tc_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($notAssignedProjects as $item) {
-            $key = $item->type_of_work ?? '';
-            if (array_key_exists($key, $notAssignedProjects_tc_by_type_of_work)) {
-                $notAssignedProjects_tc_by_type_of_work[$key]++;
-            } else {
-                $notAssignedProjects_tc_by_type_of_work[''] = ($notAssignedProjects_tc_by_type_of_work[''] ?? 0) + 1;
-            }
+    $statisticanlist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($statisticanlist as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $statisticanlist_sme_by_type_of_work)) {
+            $statisticanlist_sme_by_type_of_work[$key]++;
+        } else {
+            $statisticanlist_sme_by_type_of_work[''] = ($statisticanlist_sme_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        $revertdetails = ProjectAssignDetails::with([
-            'projectData.writerData',
-            'projectData.reviewerData',
-            'projectData.statisticanData',
-            'projectData.tcData',
-        ])
-            ->whereIn('project_id', $projectIdsTask)
-            ->where('status', 'revert')
-            ->orderBy('updated_at', 'desc')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
-                    ->whereDoesntHave('projectAcceptStatust', function ($sq) {
-                        $sq->where('status', 'rejected');
-                    })
-                    ->whereDoesntHave('writerData', function ($sq) {
-                        $sq->whereIn('status', ['to_do', 'on_going']);
-                    })
-                    ->whereDoesntHave('reviewerData', function ($sq) {
-                        $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
-                    })
-                    ->whereDoesntHave('statisticanData', function ($sq) {
-                        $sq->whereIn('status', ['to_do', 'on_going']);
-                    });
-            })
-            ->get()
-            ->unique('project_id');
+    $smelist = ProjectAssignDetails::with(['projectData'])
+        ->whereIn('project_id', $projectids)
+        ->where('type', 'sme')
+        ->where('status', 'need_support')
+        ->whereHas('projectData', function ($query)  {
+            $query->where('process_status', '!=', 'completed')
+                ->whereDoesntHave('tcData', function ($sq) {
+                    $sq->where('status', 'correction')
+                        ->where('type', 'team_coordinator');
+                });
+        })
+        ->orderBy('created_at', 'desc')
+        ->get()
+        ->unique('project_id')
+        ->values();
 
-        $revertdetails_count = $revertdetails->count();
+    $smelist_sme_count = $smelist->count();
 
-        $revertdetails_by_type_of_work = array_fill_keys($type_of_work, 0);
-        foreach ($revertdetails as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
-            if (array_key_exists($key, $revertdetails_by_type_of_work)) {
-                $revertdetails_by_type_of_work[$key]++;
-            } else {
-                $revertdetails_by_type_of_work[''] = ($revertdetails_by_type_of_work[''] ?? 0) + 1;
-            }
+    $smelist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($smelist as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $smelist_sme_by_type_of_work)) {
+            $smelist_sme_by_type_of_work[$key]++;
+        } else {
+            $smelist_sme_by_type_of_work[''] = ($smelist_sme_by_type_of_work[''] ?? 0) + 1;
         }
+    }
 
-        //tc Das TODO
+    $publication_list = ProjectAssignDetails::with(['projectData'])
+        ->whereIn('created_by', $peopleIds_pm)
+        ->whereIn('project_id', $projectids)
+        ->where('type', 'publication_manager')
+        ->orderBy('created_at', 'desc')
+        ->whereIn('status', ['pending_author', 'rejected', 'reviewer_comments', 'resubmission', 'published', 'submitted'])
+        ->whereHas('projectData', function ($query) {
+            $query->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
+                ->whereDoesntHave('writerData', function ($wq) {
+                    $wq->whereIn('status', ['correction', 'need_support']);
+                })
+                ->whereDoesntHave('reviewerData', function ($wq) {
+                    $wq->whereIn('status', ['correction', 'need_support']);
+                })
+                ->whereDoesntHave('statisticanData', function ($sq) {
+                    $sq->whereIn('status', ['correction', 'need_support']);
+                })
+                ->whereDoesntHave('tcData', function ($tq) {
+                    $tq->where('status', 'correction')
+                        ->where('type', 'team_coordinator')
+                        ->where('type_sme', 'Publication Manager');
+                });
+        })
+        ->get()
+        ->unique('project_id')
+        ->values();
 
-        $tc_to_do = ProjectAssignDetails::with([
-            'projectData.writerData',
-            'projectData.reviewerData',
-            'projectData.statisticanData',
-            'projectData.tcData',
-        ])
-            ->where('status', 'correction')
-            ->where('type', 'team_coordinator')
-            ->orderBy('updated_at', 'desc')
-            ->whereHas('projectData', function ($q) {
-                $q->where('process_status', '!=', 'completed')
-                    ->where('is_deleted', 0);
+    $publication_list_count = $publication_list->count();
 
-                // Writer condition based on type_of_work
-                $q->where(function ($innerQ) {
-                    $innerQ->where(function ($subInnerQ) {
-                        // Non-thesis → block to_do & on_going
-                        $subInnerQ->where('type_of_work', '!=', 'thesis')
+    $publication_list_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($publication_list as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $publication_list_by_type_of_work)) {
+            $publication_list_by_type_of_work[$key]++;
+        } else {
+            $publication_list_by_type_of_work[''] = ($publication_list_by_type_of_work[''] ?? 0) + 1;
+        }
+    }
+
+    // Publication
+    $publicationStatus = ['submit_to_journal', 'pending_author', 'rejected', 'withdrawal', 'resubmission', 'reviewer_comments'];
+    $pending_publication = ProjectAssignDetails::where('type', 'publication_manager')
+        ->whereIn('status', $publicationStatus)
+        ->whereIn('created_by', $peopleIds_sme)
+        ->whereHas('projectData', function ($query)  {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->get()
+        ->unique('project_id')
+        ->values();
+
+    $publication_count = $pending_publication->count();
+
+    $publication_by_type_of_work = array_fill_keys($type_of_work, 0);
+    foreach ($pending_publication as $item) {
+        $ep = EntryProcessModel::where('id', $item->project_id)->first();
+        $key = $ep->type_of_work ?? '';
+        if (array_key_exists($key, $publication_by_type_of_work)) {
+            $publication_by_type_of_work[$key]++;
+        } else {
+            $publication_by_type_of_work[''] = ($publication_by_type_of_work[''] ?? 0) + 1;
+        }
+    }
+
+    // ========== TC DASHBOARD SECTION ==========
+    
+    $entries = EntryProcessModel::select(
+        'id',
+        'type_of_work',
+        'project_id',
+        'process_status',
+        'hierarchy_level',
+        'projectduration',
+        'created_by'
+    )
+        ->where('is_deleted', 0)
+        ->get();
+        
+    $entriesTask = EntryProcessModel::select(
+        'id',
+        'type_of_work',
+        'project_id',
+        'process_status',
+        'hierarchy_level',
+        'projectduration',
+        'created_by'
+    )
+        ->where('is_deleted', 0)
+        ->get();
+
+    $projectIds = $entries->pluck('id')->unique()->toArray();
+    $projectIdsTask = $entriesTask->pluck('id')->unique()->toArray();
+
+    // TC To-Do items
+    $tc_to_do = ProjectAssignDetails::with([
+        'projectData.writerData',
+        'projectData.reviewerData',
+        'projectData.statisticanData',
+        'projectData.tcData',
+    ])
+        ->where('status', 'correction')
+        ->where('type', 'team_coordinator')
+        ->orderBy('updated_at', 'desc')
+        ->whereHas('projectData', function ($q) {
+            $q->where('process_status', '!=', 'completed')
+                ->where('is_deleted', 0);
+            $q->where(function ($innerQ) {
+                $innerQ->where(function ($subInnerQ) {
+                    $subInnerQ->where('type_of_work', '!=', 'thesis')
+                        ->whereDoesntHave('writerData', function ($subQ) {
+                            $subQ->whereIn('status', [
+                                'to_do', 'on_going', 'correction', 'plag_correction',
+                                'rejected', 'revert', 'need_support',
+                            ]);
+                        });
+                })
+                    ->orWhere(function ($subInnerQ) {
+                        $subInnerQ->where('type_of_work', 'thesis')
                             ->whereDoesntHave('writerData', function ($subQ) {
                                 $subQ->whereIn('status', [
-                                    'to_do',
-                                    'on_going',
-                                    'correction',
-                                    'plag_correction',
-                                    'rejected',
-                                    'revert',
-                                    'need_support',
+                                    'correction', 'plag_correction', 'rejected', 'revert', 'need_support',
                                 ]);
                             });
-                    })
-                        ->orWhere(function ($subInnerQ) {
-                            // Thesis → only block correction, plag_correction, rejected, revert
-                            $subInnerQ->where('type_of_work', 'thesis')
-                                ->whereDoesntHave('writerData', function ($subQ) {
-                                    $subQ->whereIn('status', [
-                                        'correction',
-                                        'plag_correction',
-                                        'rejected',
-                                        'revert',
-                                        'need_support',
-                                    ]);
-                                });
+                    });
+            });
+            $q->where(function ($innerQ) {
+                $innerQ->where(function ($subInnerQ) {
+                    $subInnerQ->where('type_of_work', '!=', 'thesis')
+                        ->whereDoesntHave('reviewerData', function ($subQ) {
+                            $subQ->whereIn('status', [
+                                'to_do', 'on_going', 'correction', 'plag_correction',
+                                'rejected', 'revert', 'need_support',
+                            ]);
                         });
-                });
-
-                // Reviewer condition based on type_of_work
-                $q->where(function ($innerQ) {
-                    $innerQ->where(function ($subInnerQ) {
-                        // Non-thesis → block to_do & on_going
-                        $subInnerQ->where('type_of_work', '!=', 'thesis')
+                })
+                    ->orWhere(function ($subInnerQ) {
+                        $subInnerQ->where('type_of_work', 'thesis')
                             ->whereDoesntHave('reviewerData', function ($subQ) {
                                 $subQ->whereIn('status', [
-                                    'to_do',
-                                    'on_going',
-                                    'correction',
-                                    'plag_correction',
-                                    'rejected',
-                                    'revert',
-                                    'need_support',
+                                    'correction', 'plag_correction', 'rejected', 'revert', 'need_support',
                                 ]);
                             });
-                    })
-                        ->orWhere(function ($subInnerQ) {
-                            // Thesis → only block correction, plag_correction, rejected, revert
-                            $subInnerQ->where('type_of_work', 'thesis')
-                                ->whereDoesntHave('reviewerData', function ($subQ) {
-                                    $subQ->whereIn('status', [
-                                        'correction',
-                                        'plag_correction',
-                                        'rejected',
-                                        'revert',
-                                        'need_support',
-                                    ]);
-                                });
-                        });
-                });
-
-                // Statistician condition
-                $q->whereDoesntHave('statisticanData', function ($subQ) {
-                    $subQ->whereIn('status', [
-                        'to_do',
-                        'on_going',
-                        'correction',
-                        'plag_correction',
-                        'rejected',
-                        'revert',
-                        'need_support',
-                    ]);
-                });
-
-                // Project acceptance status
-                $q->whereDoesntHave('projectAcceptStatust', function ($sq) {
-                    $sq->where('status', 'rejected');
-                });
-
-                // SME data condition
-                $q->whereDoesntHave('smeData', function ($subQ) {
-                    $subQ->where('status', 'need_support');
-                });
-            })
-            ->get()
-            ->unique('project_id')
-            ->filter(function ($row) {
-                if ($row->projectData->tcData->isNotEmpty()) {
-                    return true;
-                }
-
-                $writerStatus = optional($row->projectData->writerData->first())->status;
-                $reviewerStatus = optional($row->projectData->reviewerData->first())->status;
-                $statisticianStatus = optional($row->projectData->statisticanData->first())->status;
-
-                return ! ($writerStatus === 'completed' &&
-                    $reviewerStatus === 'completed' &&
-                    $statisticianStatus === 'completed');
-            })
-            ->values();
-
-        $peopleIds_sme = People::where('position', '13')
-            ->pluck('id')
-            ->filter()
-            ->values()
-            ->toArray();
-
-        $projectAssignDetails = ProjectAssignDetails::pluck('project_id')->unique();
-
-        // 5. TC Todo List
-        $tcTodoListQuery = EntryProcessModel::with([
-            'userData',
-            'writerData',
-            'reviewerData',
-            'statisticanData',
-            'journalData',
-        ])
-            ->where('process_status', 'in_progress')
-            // ->whereYear('entry_date', $currentYear)
-            ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
-            ->whereIn('created_by', $peopleIds_sme)
-            ->limit(100);
-
-        if ($projectAssignDetails->isNotEmpty()) {
-            $tcTodoListQuery->whereNotIn('id', $projectAssignDetails);
-        }
-
-        $tcTodoList = $tcTodoListQuery->orderBy('id', 'desc')->get();
-
-        // 6. Admin Todo List
-        $adminTodoListQuery = EntryProcessModel::with([
-            'userData',
-            'writerData',
-            'reviewerData',
-            'statisticanData',
-            'journalData',
-        ])
-            ->where('process_status', 'in_progress')
-            // ->whereYear('entry_date', $currentYear)
-            ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
-            ->where('created_by', 9);
-
-        if ($projectAssignDetails->isNotEmpty()) {
-            $adminTodoListQuery->whereNotIn('id', $projectAssignDetails);
-        }
-
-        $adminTodoList = $adminTodoListQuery->orderBy('id', 'desc')->get();
-
-        // 7. Merge and process todo items
-        $todoItems = collect($tcTodoList)
-            ->merge(
-                collect($adminTodoList)
-                    ->filter(function ($item) {
-                        return ! empty($item->writerData) ||
-                            ! empty($item->reviewerData) ||
-                            ! empty($item->statisticanData) ||
-                            ! empty($item->journalData);
-                    })
-            )
-            ->merge($tc_to_do)
-            ->sortByDesc('updated_at')
-            ->map(function ($item) {
-                $hasAnyRole = (isset($item->writerData) && $item->writerData->isEmpty()) ||
-                    (isset($item->reviewerData) && $item->reviewerData->isEmpty()) ||
-                    (isset($item->statisticanData) && $item->statisticanData->isEmpty()) ||
-                    (isset($item->journalData) && $item->journalData->isEmpty());
-
-                return [
-                    'id' => $item->id ?? null,
-                    'project_id' => $item->project_id ?? null,
-                    'type_of_work' => $item->projectData->type_of_work ?? null,
-                    'project_ids' => $item->projectData->project_id ?? null,
-                    'hierarchy_level' => $item->hierarchy_level ?? null,
-                    'hierarchy_levels' => $item->projectData->hierarchy_level ?? null,
-                    'process_status' => $item->process_status ?? null,
-                    'process_statuses' => $item->projectData->process_status ?? null,
-                    'created_by' => $item->created_by ?? null,
-                    'has_role' => $hasAnyRole,
-                ];
-            })
-            ->values();
-
-        // dd($todoItems);
-
-        $todoItems_count = $todoItems->count();
-
-        // $todoItems_by_type_of_work = array_fill_keys($type_of_work, 0);
-        // foreach ($todoItems as $item) {
-        //     $ep = EntryProcessModel::where('id', $item->project_id)->first();
-        //     $key = $ep->type_of_work ?? '';
-        //     if (array_key_exists($key, $todoItems_by_type_of_work)) {
-        //         $todoItems_by_type_of_work[$key]++;
-        //     } else {
-        //         $todoItems_by_type_of_work[''] = ($todoItems_by_type_of_work[''] ?? 0) + 1;
-        //     }
-        // }
-
-        $todoItems_by_type_of_work = array_fill_keys($type_of_work, 0);
-
-        foreach ($todoItems as $item) {
-            // Access as array, not object
-            $key = $item['type_of_work'] ?? '';
-
-            if (array_key_exists($key, $todoItems_by_type_of_work)) {
-                $todoItems_by_type_of_work[$key]++;
-            } else {
-                // Count items with missing / unknown type_of_work
-                $todoItems_by_type_of_work[''] = ($todoItems_by_type_of_work[''] ?? 0) + 1;
+                    });
+            });
+            $q->whereDoesntHave('statisticanData', function ($subQ) {
+                $subQ->whereIn('status', [
+                    'to_do', 'on_going', 'correction', 'plag_correction',
+                    'rejected', 'revert', 'need_support',
+                ]);
+            });
+            $q->whereDoesntHave('projectAcceptStatust', function ($sq) {
+                $sq->where('status', 'rejected');
+            });
+            $q->whereDoesntHave('smeData', function ($subQ) {
+                $subQ->where('status', 'need_support');
+            });
+        })
+        ->get()
+        ->unique('project_id')
+        ->filter(function ($row) {
+            if ($row->projectData->tcData->isNotEmpty()) {
+                return true;
             }
-        }
+            $writerStatus = optional($row->projectData->writerData->first())->status;
+            $reviewerStatus = optional($row->projectData->reviewerData->first())->status;
+            $statisticianStatus = optional($row->projectData->statisticanData->first())->status;
+            return ! ($writerStatus === 'completed' &&
+                $reviewerStatus === 'completed' &&
+                $statisticianStatus === 'completed');
+        })
+        ->values();
 
-        $finalResponse = [];
-        foreach ($type_of_work as $index => $type) {
-            $total_sme =
-    ($reviewerist_sme_by_type_of_work[$type] ?? 0) +
-    ($writerList_sme_by_type_of_work[$type] ?? 0) +
-    ($statisticanlist_sme_by_type_of_work[$type] ?? 0) +
-    ($smelist_sme_by_type_of_work[$type] ?? 0) +
-    ($publication_list_by_type_of_work[$type] ?? 0);
+    $peopleIds_sme = People::where('position', '13')
+        ->pluck('id')
+        ->filter()
+        ->values()
+        ->toArray();
 
-            $total_tc = ($todoItems_by_type_of_work[$type] ?? 0) + ($revert_writer_by_type_of_work[$type] ?? 0)
-            + ($notAssignedProjects_tc_by_type_of_work[$type] ?? 0) + ($revertdetails_by_type_of_work[$type] ?? 0)
-            + ($rejected_tc_by_type_of_work[$type] ?? 0);
-            $finalResponse[$index] = [
+    $projectAssignDetails = ProjectAssignDetails::pluck('project_id')->unique();
 
-                'type_of_work' => $type,
-                // 'tc' => $tc_by_type_of_work[$type] ?? 0,
-                'pending_statistics' => $statistics_by_type_of_work[$type] ?? 0,
-                'pending_writer' => $writer_by_type_of_work[$type] ?? 0,
-                'pending_reviewer' => $reviewer_by_type_of_work[$type] ?? 0,
-                'pending_author' => $author_by_type_of_work[$type] ?? 0,
-                // 'pending_sme' => $sme_by_type_of_work[$type] ?? 0,
-                // 'reviewerist_sme'=> $reviewerist_sme_by_type_of_work[$type] ?? 0,
-                // 'writerList_sme' => $writerList_sme_by_type_of_work[$type] ?? 0,
-                // 'statisticanlist_sme' => $statisticanlist_sme_by_type_of_work[$type] ?? 0,
-                // 'smelist_sme' => $smelist_sme_by_type_of_work[$type] ?? 0,
-                // 'publication_sme' => $publication_list_by_type_of_work[$type] ?? 0,
-                'pending_sme' => $total_sme,
-                'tc' => $total_tc,
+    // TC Todo List
+    $tcTodoListQuery = EntryProcessModel::with([
+        'userData', 'writerData', 'reviewerData', 'statisticanData', 'journalData',
+    ])
+        ->where('process_status', 'in_progress')
+        ->where('is_deleted', 0)
+        ->where('process_status', '!=', 'completed')
+        ->whereIn('created_by', $peopleIds_sme)
+        ->limit(100);
 
-                'pending_publication' => $publication_by_type_of_work[$type] ?? 0,
-                // 'pm_by_type_of_work' => $pm_by_type_of_work[$type] ?? 0,
-                // 'notAssigned_tc_count' => $notAssigned_tc_count[$type] ?? 0,
-                // 'writerWithoutReviewer' => $writerWithoutReviewer_by_type_of_work[$type] ?? 0,
-
-                // //TC
-                // 'revert_writer_by_type_of_work' => $revert_writer_by_type_of_work[$type] ?? 0,
-                // 'notAssignedProjects_tc_by_type_of_work' => $notAssignedProjects_tc_by_type_of_work[$type] ?? 0,
-                // 'revertdetails_by_type_of_work' => $revertdetails_by_type_of_work[$type] ?? 0,
-
-                // //toDo tc
-                // 'todoItems_by_type_of_work' => $todoItems_by_type_of_work[$type] ?? 0,
-
-                // //rejected tc
-                // 'rejected_tc_list' => $rejected_tc_by_type_of_work[$type] ?? 0,
-
-            ];
-        }
-
-        return response()->json($finalResponse);
+    if ($projectAssignDetails->isNotEmpty()) {
+        $tcTodoListQuery->whereNotIn('id', $projectAssignDetails);
     }
+
+    $tcTodoList = $tcTodoListQuery->orderBy('id', 'desc')->get();
+
+    // Admin Todo List
+    $adminTodoListQuery = EntryProcessModel::with([
+        'userData', 'writerData', 'reviewerData', 'statisticanData', 'journalData',
+    ])
+        ->where('process_status', 'in_progress')
+        ->where('is_deleted', 0)
+        ->where('process_status', '!=', 'completed')
+        ->where('created_by', 9);
+
+    if ($projectAssignDetails->isNotEmpty()) {
+        $adminTodoListQuery->whereNotIn('id', $projectAssignDetails);
+    }
+
+    $adminTodoList = $adminTodoListQuery->orderBy('id', 'desc')->get();
+
+    // Merge todo items (this is tc_to_do_lists) - IMPORTANT: Keep project_ids
+    $todoItems = collect($tcTodoList)
+        ->merge(
+            collect($adminTodoList)
+                ->filter(function ($item) {
+                    return ! empty($item->writerData) ||
+                        ! empty($item->reviewerData) ||
+                        ! empty($item->statisticanData) ||
+                        ! empty($item->journalData);
+                })
+        )
+        ->merge($tc_to_do)
+        ->sortByDesc('updated_at')
+        ->map(function ($item) {
+            return [
+                'id' => $item->id ?? null,
+                'project_id' => $item->project_id ?? null,
+                'project_ids' => $item->projectData->project_id ?? null, // This contains "manuscript-190" etc.
+                'type_of_work' => $item->projectData->type_of_work ?? null,
+                'process_status' => $item->process_status ?? null,
+                'created_by' => $item->created_by ?? null,
+            ];
+        })
+        ->values();
+
+    // Statistician without Writer
+    $statisticianWithoutWriter = ProjectAssignDetails::with([
+        'projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at',
+    ])
+        ->where('type', 'team_coordinator')
+        ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
+        ->where('status', 'completed')
+        ->whereNotIn('status', ['need_support'])
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed')
+                ->whereDoesntHave('writerData', function ($sq) {
+                    $sq->whereIn('status', ['correction', 'to_do', 'on_going']);
+                })
+                ->whereDoesntHave('reviewerData', function ($sq) {
+                    $sq->whereIn('status', ['correction', 'to_do', 'need_support', 'revert', 'on_going']);
+                });
+        })
+        ->select('project_id', 'status', 'type', 'updated_at')
+        ->orderBy('updated_at', 'desc')
+        ->get()
+        ->unique('project_id');
+
+    // Writer Completed Projects
+    $writerCompletedProjects = ProjectAssignDetails::with([
+        'projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at',
+    ])
+        ->whereIn('status', ['completed'])
+        ->where('type', 'writer')
+        ->whereIn('project_id', $projectIdsTask)
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed')
+                ->whereDoesntHave('projectAcceptStatust', function ($sq) {
+                    $sq->where('status', 'rejected');
+                })
+                ->whereDoesntHave('writerData', function ($sq) {
+                    $sq->whereIn('status', ['to_do', 'on_going']);
+                })
+                ->whereDoesntHave('reviewerData', function ($sq) {
+                    $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
+                });
+        })
+        ->select('project_id', 'status', 'type', 'updated_at')
+        ->orderBy('created_at', 'desc')
+        ->get();
+
+    $allWriterProjects = $writerCompletedProjects->unique('project_id')->values();
+    $writerProjectIds = $allWriterProjects->pluck('project_id')->unique()->toArray();
+
+    $reviewerProjects = ProjectAssignDetails::where('type', 'reviewer')
+        ->whereIn('project_id', $writerProjectIds)
+        ->pluck('project_id')
+        ->unique()
+        ->toArray();
+
+    $writerWithoutReviewer = $allWriterProjects->filter(function ($writer) use ($reviewerProjects) {
+        return ! in_array($writer->project_id, $reviewerProjects);
+    })
+        ->unique('project_id')
+        ->sortByDesc('updated_at')
+        ->values();
+
+    // revert_writer (matches tcDashboard)
+    $revert_writer = collect()
+        ->merge($writerWithoutReviewer)
+        ->merge($statisticianWithoutWriter)
+        ->sortByDesc('updated_at')
+        ->unique('project_id')
+        ->values();
+
+    // revertdetails (matches tcDashboard)
+    $revertdetails = ProjectAssignDetails::with([
+        'projectData.writerData',
+        'projectData.reviewerData',
+        'projectData.statisticanData',
+        'projectData.tcData',
+    ])
+        ->whereIn('project_id', $projectIdsTask)
+        ->where('status', 'revert')
+        ->orderBy('updated_at', 'desc')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed')
+                ->whereDoesntHave('projectAcceptStatust', function ($sq) {
+                    $sq->where('status', 'rejected');
+                })
+                ->whereDoesntHave('writerData', function ($sq) {
+                    $sq->whereIn('status', ['to_do', 'on_going']);
+                })
+                ->whereDoesntHave('reviewerData', function ($sq) {
+                    $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
+                })
+                ->whereDoesntHave('statisticanData', function ($sq) {
+                    $sq->whereIn('status', ['to_do', 'on_going']);
+                });
+        })
+        ->get()
+        ->unique('project_id');
+
+    // ========== CALCULATE TC COUNTS BY TYPE OF WORK ==========
+    $tc_counts = array_fill_keys($type_of_work, 0);
+
+    // Helper function to extract type_of_work from project_id or project_ids string
+    $extractTypeFromString = function($str) {
+        if (empty($str) || !is_string($str)) {
+            return null;
+        }
+        if (strpos($str, 'manuscript') !== false) {
+            return 'manuscript';
+        } elseif (strpos($str, 'statistics') !== false) {
+            return 'statistics';
+        } elseif (strpos($str, 'thesis') !== false) {
+            return 'thesis';
+        } elseif (strpos($str, 'others') !== false) {
+            return 'others';
+        }
+        return null;
+    };
+
+    // 1. Count from todoItems (tc_to_do_lists)
+    foreach ($todoItems as $item) {
+        $type = null;
+        
+        // First try to get from project_ids (string like "manuscript-190")
+        if (!empty($item['project_ids']) && is_string($item['project_ids'])) {
+            $type = $extractTypeFromString($item['project_ids']);
+        }
+        
+        // If not found, try from project_id
+        if (!$type && !empty($item['project_id']) && is_string($item['project_id'])) {
+            $type = $extractTypeFromString($item['project_id']);
+        }
+        
+        // Finally try from type_of_work field
+        if (!$type && !empty($item['type_of_work'])) {
+            $type = $item['type_of_work'];
+        }
+        
+        if ($type && in_array($type, $type_of_work)) {
+            $tc_counts[$type]++;
+        }
+    }
+
+    // 2. Count from revert_writer
+    foreach ($revert_writer as $item) {
+        $type = $item->projectData->type_of_work ?? null;
+        if ($type && in_array($type, $type_of_work)) {
+            $tc_counts[$type]++;
+        }
+    }
+
+    // 3. Count from projectStatusList (rejected projects)
+    foreach ($projectStatusList as $item) {
+        $type = $item->type_of_work ?? null;
+        if ($type && in_array($type, $type_of_work)) {
+            $tc_counts[$type]++;
+        }
+    }
+
+    // 4. Count from revertdetails
+    foreach ($revertdetails as $item) {
+        $type = $item->projectData->type_of_work ?? null;
+        if ($type && in_array($type, $type_of_work)) {
+            $tc_counts[$type]++;
+        }
+    }
+
+    // Build final response
+    $finalResponse = [];
+    foreach ($type_of_work as $index => $type) {
+        $total_sme = ($reviewerist_sme_by_type_of_work[$type] ?? 0) +
+            ($writerList_sme_by_type_of_work[$type] ?? 0) +
+            ($statisticanlist_sme_by_type_of_work[$type] ?? 0) +
+            ($smelist_sme_by_type_of_work[$type] ?? 0) +
+            ($publication_list_by_type_of_work[$type] ?? 0);
+        
+        $finalResponse[$index] = [
+            'type_of_work' => $type,
+            'pending_statistics' => $statistics_by_type_of_work[$type] ?? 0,
+            'pending_writer' => $writer_by_type_of_work[$type] ?? 0,
+            'pending_reviewer' => $reviewer_by_type_of_work[$type] ?? 0,
+            'pending_author' => $author_by_type_of_work[$type] ?? 0,
+            'pending_sme' => $total_sme,
+            'tc' => $tc_counts[$type],
+            'pending_publication' => $publication_by_type_of_work[$type] ?? 0,
+        ];
+    }
+
+    return response()->json($finalResponse);
+}
 
     //employee performance report getting the ongoing to completed status time for each project_id based on assign_user
     // public function getEmployeePerformanceReport(Request $request)

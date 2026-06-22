@@ -326,391 +326,319 @@ class PaymentStatusController extends Controller
         return response()->json(['error' => 'Payment details not found'], 404);
     }
 
-    public function update(Request $request, $id)
-    {
-        $payment = PaymentStatusModel::find($id);
-        if (! $payment) {
-            return response()->json(['message' => 'Payment record not found.'], 404);
-        }
+   public function update(Request $request, $id)
+{
+    $payment = PaymentStatusModel::find($id);
+    if (! $payment) {
+        return response()->json(['message' => 'Payment record not found.'], 404);
+    }
 
-        $oldPaymentStatus = $payment->payment_status;
+    $oldPaymentStatus = $payment->payment_status;
 
-        $paymentDetails = $request->payment_details ?? [];
-        $latestPaymentType = null;
-        $latestPaymentAmount = null;
-        $latestId = null;
+    $paymentDetails = $request->payment_details ?? [];
+    $latestPaymentType = null;
+    $latestPaymentAmount = null;
+    $latestId = null;
 
-        if (is_array($paymentDetails)) {
-            foreach ($paymentDetails as $detail) {
-                if (! empty($detail['payment_type'])) {
-                    $latestId = $detail['id'] ?? null;
-                    $latestPaymentType = $detail['payment_type'];
-                    $latestPaymentAmount = $detail['payment'] ?? null;
-                }
+    if (is_array($paymentDetails)) {
+        foreach ($paymentDetails as $detail) {
+            if (! empty($detail['payment_type'])) {
+                $latestId = $detail['id'] ?? null;
+                $latestPaymentType = $detail['payment_type'];
+                $latestPaymentAmount = $detail['payment'] ?? null;
             }
-        }
-
-        $entryProcess = EntryProcessModel::find($request->project_id);
-        if (! $entryProcess) {
-            return response()->json(['message' => 'Project entry not found.'], 404);
-        }
-
-        // $totalPayment = PaymentDetails::where('payment_id', $id)
-        //     ->whereIn('payment_type', [
-        //         'advance_received',
-        //         'partial_payment_received',
-        //         'completed',
-        //     ])
-        //     ->where('id', '!=', $latestId)
-        //     ->sum('payment');
-
-        // if (in_array($latestPaymentType, ['advance_received', 'partial_payment_received', 'completed'])) {
-        //     $finalAmount = $totalPayment + ($latestPaymentAmount ?? 0);
-
-        //     if ($finalAmount > $entryProcess->budget) {
-        //         return response()->json(['message' => 'Payment amount is greater than the budget.'], 400);
-        //     }
-
-        //     if ($latestPaymentType === 'completed' && $finalAmount != $entryProcess->budget) {
-        //         return response()->json(['message' => 'Payment amount does not match the budget.'], 400);
-        //     }
-        // }
-
-
-// Get all payment details from the request payload
-$paymentDetails = $request->payment_details ?? [];
-
-// Calculate total from the UPDATED payment details in the request
-$totalUpdatedPayment = 0;
-$paymentIdsInRequest = [];
-
-foreach ($paymentDetails as $detail) {
-    if (in_array($detail['payment_type'], ['advance_received', 'partial_payment_received', 'completed'])) {
-        $totalUpdatedPayment += ($detail['payment'] ?? 0);
-        
-        if (!empty($detail['id'])) {
-            $paymentIdsInRequest[] = $detail['id'];
         }
     }
-}
 
-// Get existing payments from database that are NOT being updated
-$existingPaymentsTotal = PaymentDetails::where('payment_id', $id)
-    ->whereIn('payment_type', ['advance_received', 'partial_payment_received', 'completed'])
-    ->whereNotIn('id', $paymentIdsInRequest) // Exclude the ones being updated
-    ->sum('payment');
-
-// Final total = existing payments (not updated) + updated payments from request
-$finalAmount = $existingPaymentsTotal + $totalUpdatedPayment;
-
-// Validate against budget
-if ($finalAmount > $entryProcess->budget) {
-    return response()->json([
-        'message' => 'Payment amount is greater than the budget.',
-        'details' => [
-            'existing_payments' => $existingPaymentsTotal,
-            'updated_payments_total' => $totalUpdatedPayment,
-            'final_amount' => $finalAmount,
-            'budget' => $entryProcess->budget
-        ]
-    ], 400);
-}
-
-// Check if any payment type is 'completed' in the updated payload
-$hasCompletedPayment = false;
-foreach ($paymentDetails as $detail) {
-    if ($detail['payment_type'] === 'completed') {
-        $hasCompletedPayment = true;
-        break;
+    $entryProcess = EntryProcessModel::find($request->project_id);
+    if (! $entryProcess) {
+        return response()->json(['message' => 'Project entry not found.'], 404);
     }
-}
 
-if ($hasCompletedPayment && $finalAmount != $entryProcess->budget) {
-    return response()->json([
-        'message' => 'Payment amount does not match the budget.',
-        'details' => [
-            'final_amount' => $finalAmount,
-            'required_budget' => $entryProcess->budget,
-            'difference' => $entryProcess->budget - $finalAmount
-        ]
-    ], 400);
-}
+    // Get all payment details from the request payload
+    $paymentDetails = $request->payment_details ?? [];
 
-        function handleFileUpload($mixedArray, $additionalExistingFiles = [])
-        {
-            $existingFiles = [];
-            $filesToUpload = [];
-            $uploadedFiles = [];
+    // Calculate total from the UPDATED payment details in the request
+    $totalUpdatedPayment = 0;
+    $paymentIdsInRequest = [];
 
-            if (is_array($mixedArray)) {
-                foreach ($mixedArray as $item) {
-                    if (is_string($item) && ! empty(trim($item))) {
-
-                        $existingFiles[] = trim($item);
-                    } elseif ($item instanceof \Illuminate\Http\UploadedFile) {
-
-                        $filesToUpload[] = $item;
-                    }
-                }
+    foreach ($paymentDetails as $detail) {
+        if (in_array($detail['payment_type'], ['advance_received', 'partial_payment_received', 'completed'])) {
+            $totalUpdatedPayment += ($detail['payment'] ?? 0);
+            
+            if (!empty($detail['id'])) {
+                $paymentIdsInRequest[] = $detail['id'];
             }
-
-            if (! empty($additionalExistingFiles)) {
-                if (is_array($additionalExistingFiles)) {
-                    $existingFiles = array_merge($existingFiles, $additionalExistingFiles);
-                } elseif (is_string($additionalExistingFiles)) {
-                    $decoded = json_decode($additionalExistingFiles, true);
-                    if (is_array($decoded)) {
-                        $existingFiles = array_merge($existingFiles, $decoded);
-                    }
-                }
-            }
-
-            if (! empty($filesToUpload)) {
-                foreach ($filesToUpload as $file) {
-                    if ($file->isValid()) {
-                        $filename =
-                            pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                            .'_'.time().'_'.rand(1000, 9999)
-                            .'.'.$file->extension();
-
-                        $path = public_path('payment_screenshots');
-
-                        if (! is_dir($path)) {
-                            mkdir($path, 0775, true);
-                        }
-
-                        $file->move($path, $filename);
-                        $uploadedFiles[] = $filename;
-                    }
-                }
-            }
-
-            $allFiles = array_merge($existingFiles, $uploadedFiles);
-            $allFiles = array_values(array_unique(array_filter($allFiles)));
-
-            return $allFiles;
-        }
-
-        $payment->project_id = $request->project_id;
-        $payment->payment_status = $latestPaymentType ?? $request->payment_status;
-        $payment->discounts = $request->discount;
-        $payment->reference_number = $request->reference_number;
-        $payment->created_by = $request->created_by;
-
-        if ($request->hasFile('reference_number_file')) {
-            $remainingFiles = $request->existing_reference_files ?? [];
-            $files = handleFileUpload(
-                $request->file('reference_number_file'),
-                $remainingFiles
-            );
-
-            $payment->reference_number_file = ! empty($files) ? $files : null;
-        }
-
-        $payment->save();
-
-        if ($payment->payment_status !== $oldPaymentStatus) {
-            PaymentLogs::create([
-                'project_id' => $request->project_id,
-                'payment_id' => $payment->id,
-                'payment_status' => $request->payment_status,
-                'reference_number' => $request->reference_number,
-                'reference_number_file' => $payment->reference_number_file,
-                'created_by' => $request->created_by,
-                'created_date' => now(),
-            ]);
-        }
-
-        // if (is_array($paymentDetails)) {
-        //     foreach ($paymentDetails as $index => $detail) {
-
-        //         if (empty($detail['payment_type'])) {
-        //             return response()->json(['message' => 'Payment type is not selected.'], 400);
-        //         }
-
-        //         $amountPayment = PaymentDetails::where('payment_id', $payment->id)
-        //             // ->where('payment_type', $detail['payment_type'])
-        //             ->first();
-        //         if ($amountPayment->payment === $detail['payment']) {
-        //             $existingPayment = PaymentDetails::where('payment_id', $payment->id)
-        //             ->where('id', $detail['id'])
-        //             // ->where('payment_type', $detail['payment_type'])
-        //                 ->first();
-        //         } elseif($existingPayment->payment_type !== $detail['payment_type']) {
-
-        //             $existingPayment = PaymentDetails::where('payment_id', $payment->id)
-        //                 // ->where('payment_type', $detail['payment_type'])
-        //                 ->where('id', $detail['id'])
-        //                 ->first();
-        //         }
-        //         else{
-        //             $existingPayment = PaymentDetails::where('payment_id', $payment->id)
-        //                 // ->where('payment_type', $detail['payment_type'])
-        //                 // ->where('id', $detail['id'])
-        //                 ->first();
-        //         }
-
-        //         $mixedFilesArray = $detail['reference_number_file'] ?? [];
-
-        //         $additionalExistingFiles = $detail['existing_reference_files'] ?? [];
-
-        //         $finalFiles = handleFileUpload($mixedFilesArray, $additionalExistingFiles);
-
-        //         if ($existingPayment) {
-        //             $existingPayment->payment = $detail['payment'] ?? $existingPayment->payment;
-        //             $existingPayment->payment_date = $detail['payment_date'] ?? $existingPayment->payment_date;
-        //             $existingPayment->reference_number = $detail['reference_number'] ?? $existingPayment->reference_number;
-        //             $existingPayment->payment_type = $detail['payment_type'] ?? $existingPayment->payment_type;
-
-        //             $existingPayment->reference_number_file = ! empty($finalFiles) ? $finalFiles : null;
-
-        //             $existingPayment->save();
-        //         } else {
-        //             PaymentDetails::create([
-        //                 'payment_id' => $payment->id,
-        //                 'payment' => $detail['payment'] ?? 0,
-        //                 'payment_type' => $detail['payment_type'],
-        //                 'payment_date' => $detail['payment_date'] ?? now(),
-        //                 'reference_number' => $detail['reference_number'] ?? null,
-        //                 'reference_number_file' => ! empty($finalFiles) ? $finalFiles : null,
-        //             ]);
-        //         }
-        //     }
-        //     $created = User::with('createdByUser')->find($request->created_by);
-        //     $employee = $created?->employee_name ?? 'Mohamed Ali';
-        //     $creator = $created?->createdByUser?->name ?? 'Admin';
-        //     $paymentTypeForActivity = ! empty($detail['payment_type']) ? $detail['payment_type'] : $request->payment_type;
-        //     $activityText = "Payment marked as {$paymentTypeForActivity} by {$employee} ({$creator})";
-        //     //project activity
-        //     ProjectActivity::create([
-        //         'project_id' => $request->project_id,
-        //         'activity' => $activityText,
-        //         'created_by' => $request->created_by,
-        //         'role' => $creator,
-        //         'created_date' => now(),
-        //     ]);
-        // }
-
-        if (is_array($paymentDetails)) {
-    foreach ($paymentDetails as $index => $detail) {
-        if (empty($detail['payment_type'])) {
-            return response()->json(['message' => 'Payment type is not selected.'], 400);
-        }
-
-        // Initialize $existingPayment as null
-        $existingPayment = null;
-        
-        // Only try to find existing payment if 'id' exists in the detail
-        if (isset($detail['id']) && !empty($detail['id'])) {
-            $existingPayment = PaymentDetails::where('payment_id', $payment->id)
-                ->where('id', $detail['id'])
-                ->first();
-        }
-
-        $mixedFilesArray = $detail['reference_number_file'] ?? [];
-        $additionalExistingFiles = $detail['existing_reference_files'] ?? [];
-        $finalFiles = handleFileUpload($mixedFilesArray, $additionalExistingFiles);
-
-        if ($existingPayment) {
-            // Update existing payment
-            $existingPayment->payment = $detail['payment'] ?? $existingPayment->payment;
-            $existingPayment->payment_date = $detail['payment_date'] ?? $existingPayment->payment_date;
-            $existingPayment->reference_number = $detail['reference_number'] ?? $existingPayment->reference_number;
-            $existingPayment->payment_type = $detail['payment_type'] ?? $existingPayment->payment_type;
-            $existingPayment->reference_number_file = !empty($finalFiles) ? $finalFiles : null;
-            $existingPayment->save();
-        } else {
-            // Create new payment
-            PaymentDetails::create([
-                'payment_id' => $payment->id,
-                'payment' => $detail['payment'] ?? 0,
-                'payment_type' => $detail['payment_type'],
-                'payment_date' => $detail['payment_date'] ?? now(),
-                'reference_number' => $detail['reference_number'] ?? null,
-                'reference_number_file' => !empty($finalFiles) ? $finalFiles : null,
-            ]);
         }
     }
-    
-    // Activity logging (using the last detail or request data)
-    $lastPaymentType = !empty($detail['payment_type']) ? $detail['payment_type'] : ($request->payment_type ?? 'N/A');
-    $created = User::with('createdByUser')->find($request->created_by);
-    $employee = $created?->employee_name ?? 'Mohamed Ali';
-    $creator = $created?->createdByUser?->name ?? 'Admin';
-    
-    $activityText = "Payment marked as {$lastPaymentType} by {$employee} ({$creator})";
-    
-    ProjectActivity::create([
-        'project_id' => $request->project_id,
-        'activity' => $activityText,
-        'created_by' => $request->created_by,
-        'role' => $creator,
-        'created_date' => now(),
-    ]);
-}
 
-        $employeePaymentTypes = ['writerPay', 'reviewerPay', 'statisticanPay', 'journalPay'];
+    // Get existing payments from database that are NOT being updated
+    $existingPaymentsTotal = PaymentDetails::where('payment_id', $id)
+        ->whereIn('payment_type', ['advance_received', 'partial_payment_received', 'completed'])
+        ->whereNotIn('id', $paymentIdsInRequest) // Exclude the ones being updated
+        ->sum('payment');
 
-        foreach ($employeePaymentTypes as $type) {
-            $paymentData = $request->input($type);
+    // Final total = existing payments (not updated) + updated payments from request
+    $finalAmount = $existingPaymentsTotal + $totalUpdatedPayment;
 
-            if (! empty($paymentData) && is_array($paymentData)) {
-                foreach ($paymentData as $user) {
-                    if (! is_array($user)) {
-                        continue;
-                    }
-
-                    $employeeFieldMap = [
-                        'writerPay' => ['id' => 'id', 'id_field' => 'writerName', 'payment_field' => 'paymentAmount', 'date_field' => 'paymentDate', 'status_field' => 'paymentStatus', 'db_type' => 'writer'],
-                        'reviewerPay' => ['id' => 'id', 'id_field' => 'reviewerName', 'payment_field' => 'reviewerPayment', 'date_field' => 'reviewerPaymentDate', 'status_field' => 'reviewerPaymentStatus', 'db_type' => 'reviewer'],
-                        'statisticanPay' => ['id' => 'id', 'id_field' => 'statisticanName', 'payment_field' => 'statisticanPayment', 'date_field' => 'statisticanPaymentDate', 'status_field' => 'statisticanPaymentStatus', 'db_type' => 'statistican'],
-                        'journalPay' => ['id' => 'id', 'id_field' => 'journalName', 'payment_field' => 'journalPayment', 'date_field' => 'journalPaymentDate', 'status_field' => 'journalPaymentStatus', 'db_type' => 'publication_manager'],
-                    ];
-
-                    $mapping = $employeeFieldMap[$type];
-                    $employee_id = $user[$mapping['id_field']] ?? null;
-
-                    if (! $employee_id) {
-                        continue;
-                    }
-
-                    $paymentEpD = EmployeePaymentDetails::where('project_id', $request->project_id)
-                        // ->where('payment_id', $payment->id)
-                        ->where('id', $user[$mapping['id']] ?? 0)
-                        // ->where('employee_id', $employee_id)
-                        ->first();
-
-                    if ($paymentEpD) {
-                        $paymentEpD->payment = $user[$mapping['payment_field']] ?? 0;
-                        $paymentEpD->payment_date = $user[$mapping['date_field']] ?? null;
-                        $paymentEpD->status = $user[$mapping['status_field']] ?? null;
-                        $paymentEpD->type = $mapping['db_type'];
-                        $paymentEpD->created_date = now();
-                        $paymentEpD->save();
-                    } else {
-                        EmployeePaymentDetails::create([
-                            'project_id' => $request->project_id,
-                            'payment_id' => $payment->id,
-                            'employee_id' => $employee_id,
-                            'payment' => $user[$mapping['payment_field']] ?? 0,
-                            'payment_date' => $user[$mapping['date_field']] ?? null,
-                            'status' => $user[$mapping['status_field']] ?? null,
-                            'type' => $mapping['db_type'],
-                            'created_date' => now(),
-                        ]);
-                    }
-                }
-            }
-        }
-
+    // Validate against budget
+    if ($finalAmount > $entryProcess->budget) {
         return response()->json([
-            'success' => true,
-            'message' => 'Payment successfully updated.',
+            'message' => 'Payment amount is greater than the budget.',
+            'details' => [
+                'existing_payments' => $existingPaymentsTotal,
+                'updated_payments_total' => $totalUpdatedPayment,
+                'final_amount' => $finalAmount,
+                'budget' => $entryProcess->budget
+            ]
+        ], 400);
+    }
+
+    // Check if any payment type is 'completed' in the updated payload
+    $hasCompletedPayment = false;
+    foreach ($paymentDetails as $detail) {
+        if ($detail['payment_type'] === 'completed') {
+            $hasCompletedPayment = true;
+            break;
+        }
+    }
+
+    if ($hasCompletedPayment && $finalAmount != $entryProcess->budget) {
+        return response()->json([
+            'message' => 'Payment amount does not match the budget.',
+            'details' => [
+                'final_amount' => $finalAmount,
+                'required_budget' => $entryProcess->budget,
+                'difference' => $entryProcess->budget - $finalAmount
+            ]
+        ], 400);
+    }
+
+    function handleFileUpload($mixedArray, $additionalExistingFiles = [])
+    {
+        $existingFiles = [];
+        $filesToUpload = [];
+        $uploadedFiles = [];
+
+        if (is_array($mixedArray)) {
+            foreach ($mixedArray as $item) {
+                if (is_string($item) && ! empty(trim($item))) {
+                    $existingFiles[] = trim($item);
+                } elseif ($item instanceof \Illuminate\Http\UploadedFile) {
+                    $filesToUpload[] = $item;
+                }
+            }
+        }
+
+        if (! empty($additionalExistingFiles)) {
+            if (is_array($additionalExistingFiles)) {
+                $existingFiles = array_merge($existingFiles, $additionalExistingFiles);
+            } elseif (is_string($additionalExistingFiles)) {
+                $decoded = json_decode($additionalExistingFiles, true);
+                if (is_array($decoded)) {
+                    $existingFiles = array_merge($existingFiles, $decoded);
+                }
+            }
+        }
+
+        if (! empty($filesToUpload)) {
+            foreach ($filesToUpload as $file) {
+                if ($file->isValid()) {
+                    $filename =
+                        pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                        .'_'.time().'_'.rand(1000, 9999)
+                        .'.'.$file->extension();
+
+                    $path = public_path('payment_screenshots');
+
+                    if (! is_dir($path)) {
+                        mkdir($path, 0775, true);
+                    }
+
+                    $file->move($path, $filename);
+                    $uploadedFiles[] = $filename;
+                }
+            }
+        }
+
+        $allFiles = array_merge($existingFiles, $uploadedFiles);
+        $allFiles = array_values(array_unique(array_filter($allFiles)));
+
+        return $allFiles;
+    }
+
+    $payment->project_id = $request->project_id;
+    $payment->payment_status = $latestPaymentType ?? $request->payment_status;
+    $payment->discounts = $request->discount;
+    $payment->reference_number = $request->reference_number;
+    $payment->created_by = $request->created_by;
+
+    if ($request->hasFile('reference_number_file')) {
+        $remainingFiles = $request->existing_reference_files ?? [];
+        $files = handleFileUpload(
+            $request->file('reference_number_file'),
+            $remainingFiles
+        );
+
+        $payment->reference_number_file = ! empty($files) ? $files : null;
+    }
+
+    $payment->save();
+
+    if ($payment->payment_status !== $oldPaymentStatus) {
+        PaymentLogs::create([
+            'project_id' => $request->project_id,
             'payment_id' => $payment->id,
-            'details' => $payment->toArray(),
-            'payment_details' => $paymentDetails,
+            'payment_status' => $request->payment_status,
+            'reference_number' => $request->reference_number,
+            'reference_number_file' => $payment->reference_number_file,
+            'created_by' => $request->created_by,
+            'created_date' => now(),
         ]);
     }
+
+    // Handle payment details with activity logging
+    if (is_array($paymentDetails)) {
+        $statusChanged = false;
+        $newPaymentStatus = null;
+        $activityLogged = false;
+        
+        foreach ($paymentDetails as $index => $detail) {
+            if (empty($detail['payment_type'])) {
+                return response()->json(['message' => 'Payment type is not selected.'], 400);
+            }
+
+            // Initialize $existingPayment as null
+            $existingPayment = null;
+            
+            // Only try to find existing payment if 'id' exists in the detail
+            if (isset($detail['id']) && !empty($detail['id'])) {
+                $existingPayment = PaymentDetails::where('payment_id', $payment->id)
+                    ->where('id', $detail['id'])
+                    ->first();
+            }
+
+            $mixedFilesArray = $detail['reference_number_file'] ?? [];
+            $additionalExistingFiles = $detail['existing_reference_files'] ?? [];
+            $finalFiles = handleFileUpload($mixedFilesArray, $additionalExistingFiles);
+
+            if ($existingPayment) {
+                // Check if payment_type is actually changing
+                if ($existingPayment->payment_type !== $detail['payment_type']) {
+                    $statusChanged = true;
+                    $newPaymentStatus = $detail['payment_type'];
+                }
+                
+                // Update existing payment
+                $existingPayment->payment = $detail['payment'] ?? $existingPayment->payment;
+                $existingPayment->payment_date = $detail['payment_date'] ?? $existingPayment->payment_date;
+                $existingPayment->reference_number = $detail['reference_number'] ?? $existingPayment->reference_number;
+                $existingPayment->payment_type = $detail['payment_type'] ?? $existingPayment->payment_type;
+                $existingPayment->reference_number_file = !empty($finalFiles) ? $finalFiles : null;
+                $existingPayment->save();
+            } else {
+                // Creating new payment - this is a status change
+                $statusChanged = true;
+                $newPaymentStatus = $detail['payment_type'];
+                
+                PaymentDetails::create([
+                    'payment_id' => $payment->id,
+                    'payment' => $detail['payment'] ?? 0,
+                    'payment_type' => $detail['payment_type'],
+                    'payment_date' => $detail['payment_date'] ?? now(),
+                    'reference_number' => $detail['reference_number'] ?? null,
+                    'reference_number_file' => !empty($finalFiles) ? $finalFiles : null,
+                ]);
+            }
+        }
+        
+        // Only create activity if status actually changed
+        if ($statusChanged && $newPaymentStatus && !$activityLogged) {
+            $created = User::with('createdByUser')->find($request->created_by);
+            $employee = $created?->employee_name ?? 'Mohamed Ali';
+            $creator = $created?->createdByUser?->name ?? 'Admin';
+            
+            // Check for duplicate activities within last 60 seconds
+            $existingActivity = ProjectActivity::where('project_id', $request->project_id)
+                ->where('created_by', $request->created_by)
+                ->where('activity', "Payment marked as {$newPaymentStatus} by {$employee} ({$creator})")
+                ->where('created_date', '>=', now()->subSeconds(60))
+                ->exists();
+
+            if (!$existingActivity) {
+                ProjectActivity::create([
+                    'project_id' => $request->project_id,
+                    'activity' => "Payment marked as {$newPaymentStatus} by {$employee} ({$creator})",
+                    'created_by' => $request->created_by,
+                    'role' => $creator,
+                    'created_date' => now(),
+                ]);
+                $activityLogged = true;
+            }
+        }
+    }
+
+    // Handle employee payments
+    $employeePaymentTypes = ['writerPay', 'reviewerPay', 'statisticanPay', 'journalPay'];
+
+    foreach ($employeePaymentTypes as $type) {
+        $paymentData = $request->input($type);
+
+        if (! empty($paymentData) && is_array($paymentData)) {
+            foreach ($paymentData as $user) {
+                if (! is_array($user)) {
+                    continue;
+                }
+
+                $employeeFieldMap = [
+                    'writerPay' => ['id' => 'id', 'id_field' => 'writerName', 'payment_field' => 'paymentAmount', 'date_field' => 'paymentDate', 'status_field' => 'paymentStatus', 'db_type' => 'writer'],
+                    'reviewerPay' => ['id' => 'id', 'id_field' => 'reviewerName', 'payment_field' => 'reviewerPayment', 'date_field' => 'reviewerPaymentDate', 'status_field' => 'reviewerPaymentStatus', 'db_type' => 'reviewer'],
+                    'statisticanPay' => ['id' => 'id', 'id_field' => 'statisticanName', 'payment_field' => 'statisticanPayment', 'date_field' => 'statisticanPaymentDate', 'status_field' => 'statisticanPaymentStatus', 'db_type' => 'statistican'],
+                    'journalPay' => ['id' => 'id', 'id_field' => 'journalName', 'payment_field' => 'journalPayment', 'date_field' => 'journalPaymentDate', 'status_field' => 'journalPaymentStatus', 'db_type' => 'publication_manager'],
+                ];
+
+                $mapping = $employeeFieldMap[$type];
+                $employee_id = $user[$mapping['id_field']] ?? null;
+
+                if (! $employee_id) {
+                    continue;
+                }
+
+                $paymentEpD = EmployeePaymentDetails::where('project_id', $request->project_id)
+                    ->where('id', $user[$mapping['id']] ?? 0)
+                    ->first();
+
+                if ($paymentEpD) {
+                    $paymentEpD->payment = $user[$mapping['payment_field']] ?? 0;
+                    $paymentEpD->payment_date = $user[$mapping['date_field']] ?? null;
+                    $paymentEpD->status = $user[$mapping['status_field']] ?? null;
+                    $paymentEpD->type = $mapping['db_type'];
+                    $paymentEpD->created_date = now();
+                    $paymentEpD->save();
+                } else {
+                    EmployeePaymentDetails::create([
+                        'project_id' => $request->project_id,
+                        'payment_id' => $payment->id,
+                        'employee_id' => $employee_id,
+                        'payment' => $user[$mapping['payment_field']] ?? 0,
+                        'payment_date' => $user[$mapping['date_field']] ?? null,
+                        'status' => $user[$mapping['status_field']] ?? null,
+                        'type' => $mapping['db_type'],
+                        'created_date' => now(),
+                    ]);
+                }
+            }
+        }
+    }
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Payment successfully updated.',
+        'payment_id' => $payment->id,
+        'details' => $payment->toArray(),
+        'payment_details' => $paymentDetails,
+    ]);
+}
     //    public function update(Request $request, $id)
     // {
     //     $payment = PaymentStatusModel::find($id);
