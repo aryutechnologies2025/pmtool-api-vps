@@ -9421,7 +9421,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
         $fromDate = $request->query('from_date');
         $toDate = $request->query('to_date');
         $entries = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
-            // ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author'])
+            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author'])
             ->whereDate('entry_date', '<=', $toDate)->get();
         $totalCount = EntryProcessModel::select('id')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)->count();
