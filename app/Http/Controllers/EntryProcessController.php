@@ -739,7 +739,7 @@ class EntryProcessController extends Controller
 
                             $paymentDetails->payment = ! empty($pay['payment']) ? $pay['payment'] : '0';
 
-                            $paymentDetails->payment_type = ! empty($pay['payment_type']) ? $pay['payment_type'] : $request->payment_status;
+                            $paymentDetails->payment_type = ! empty($pay['payment_status']) ? $pay['payment_type'] : $request->payment_status;
 
                             $paymentDetails->reference_number = ! empty($pay['reference_number']) ? $pay['reference_number'] : ($request->reference_number ?? '');
 
