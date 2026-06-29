@@ -10584,7 +10584,6 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             'inhouseExternal' => $this->inhouseExternal($request, $fromDate, $toDate)->getData(true),
             'monthWiseTable' => $this->monthWiseTable($position, $fromDate, $toDate),
             // 'monthWiseTable' => $this->monthWiseTable($position, $selectedMonth),
-            'staaging' => 'staaging'
 
         ]);
     }
