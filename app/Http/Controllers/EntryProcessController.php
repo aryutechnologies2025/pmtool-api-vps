@@ -7776,21 +7776,41 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
 });
 
         // Calculate counts
+        // $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+        //     return $item->writerData && $item->writerData->assign_user == $emp_id;
+        // })->count();
+        
+        // $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+        //     return $item->reviewerData && $item->reviewerData->assign_user == $emp_id;
+        // })->count();
+        
+        // $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+        //     return $item->journalData && $item->journalData->assign_user == $emp_id;
+        // })->count();
+        
+        // $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+        //     return $item->statisticanData && $item->statisticanData->assign_user == $emp_id;
+        // })->count();
+
         $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-            return $item->writerData && $item->writerData->assign_user == $emp_id;
-        })->count();
-        
-        $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-            return $item->reviewerData && $item->reviewerData->assign_user == $emp_id;
-        })->count();
-        
-        $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-            return $item->journalData && $item->journalData->assign_user == $emp_id;
-        })->count();
-        
-        $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-            return $item->statisticanData && $item->statisticanData->assign_user == $emp_id;
-        })->count();
+    return $item->writerData &&
+           $item->writerData->contains('assign_user', $emp_id);
+})->count();
+
+$entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+    return $item->reviewerData &&
+           $item->reviewerData->contains('assign_user', $emp_id);
+})->count();
+
+$entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+    return $item->journalData &&
+           $item->journalData->contains('assign_user', $emp_id);
+})->count();
+
+$entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+    return $item->statisticanData &&
+           $item->statisticanData->contains('assign_user', $emp_id);
+})->count();
 
         // Pending counts (same as above for now)
         $entry->writerPendingCount = $entry->writer_count;
