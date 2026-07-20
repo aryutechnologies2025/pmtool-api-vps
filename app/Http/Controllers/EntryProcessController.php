@@ -698,111 +698,223 @@ class EntryProcessController extends Controller
                 //     }
                 // }
 
+                // if (! is_null($request->payment_status) && trim($request->payment_status) !== '') {
+                //     // 1. Create main payment record
+                //     $details_p = new PaymentStatusModel;
+                //     $details_p->project_id = $details->id;
+                //     $details_p->payment_status = $request->payment_status;
+                //     $details_p->reference_number = $request->reference_number;
+                //     $details_p->discounts = $request->discount;
+                //     $details_p->created_by = $request->created_by;
+
+                //     $mainFiles = [];
+
+                //     // Handle main payment files
+                //     if ($request->hasFile('reference_number_file')) {
+                //         $path = public_path('payment_screenshots');
+
+                //         if (! is_dir($path)) {
+                //             mkdir($path, 0775, true);
+                //         }
+
+                //         foreach ($request->file('reference_number_file') as $file) {
+                //             $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                //                 .'_'.time().'_'.uniqid()
+                //                 .'.'.$file->extension();
+
+                //             $file->move($path, $filename);
+                //             $mainFiles[] = $filename;
+                //         }
+
+                //         // $details_p->reference_number_file = ! empty($mainFiles) ? json_encode($mainFiles) : null;
+                //         $details_p->reference_number_file = $mainFiles ?: null;
+                //     }
+
+                //     $details_p->save();
+
+                //     if ($request->has('payment_details') && is_array($request->payment_details)) {
+                //         foreach ($request->payment_details as $index => $pay) {
+                //             $paymentDetails = new PaymentDetails;
+                //             $paymentDetails->payment_id = $details_p->id;
+
+                //             $paymentDetails->payment = ! empty($pay['payment']) ? $pay['payment'] : '0';
+
+                //             // $paymentDetails->payment_type = ! empty($pay['payment_status']) ? $pay['payment_type'] : $request->payment_status;
+                //              $paymentDetails->payment_type = $pay['payment_status'] ?? $request->payment_status;
+                //             $paymentDetails->reference_number = ! empty($pay['reference_number']) ? $pay['reference_number'] : ($request->reference_number ?? '');
+
+                //             $paymentDetails->payment_date = ! empty($pay['payment_date']) ? $pay['payment_date'] : now();
+
+                //             $detailFiles = [];
+
+                //             if ($request->hasFile("payment_details.{$index}.reference_number_file")) {
+                //                 $detailFileInput = $request->file("payment_details.{$index}.reference_number_file");
+
+                //                 $detailFilesToProcess = is_array($detailFileInput) ? $detailFileInput : [$detailFileInput];
+
+                //                 foreach ($detailFilesToProcess as $file) {
+                //                     if ($file && $file->isValid()) {
+                //                         $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                //                             .'_'.time().'_'.uniqid().'_detail'
+                //                             .'.'.$file->extension();
+
+                //                         $path = public_path('payment_screenshots');
+
+                //                         if (! is_dir($path)) {
+                //                             mkdir($path, 0775, true);
+                //                         }
+
+                //                         $file->move($path, $filename);
+                //                         $detailFiles[] = $filename;
+                //                     }
+                //                 }
+
+                //                 // $paymentDetails->reference_number_file = ! empty($detailFiles) ? json_encode($detailFiles) : null;
+                //                 $paymentDetails->reference_number_file = $detailFiles ?: null;
+                //             }
+
+                //             $paymentDetails->save();
+
+                //             $created = User::with('createdByUser')->find($request->created_by);
+                //             $employee = $created?->employee_name ?? 'Mohamed Ali';
+                //             $creator = $created?->createdByUser?->name ?? 'Admin';
+
+                //             $paymentTypeForActivity = ! empty($pay['payment_type']) ? $pay['payment_type'] : $request->payment_status;
+                //             $activityText = "Payment marked as {$paymentTypeForActivity} by {$employee} ({$creator})";
+
+                //             $activity = new ProjectActivity;
+                //             $activity->project_id = $details->id;
+                //             $activity->activity = $activityText;
+                //             $activity->role = $creator;
+                //             $activity->created_by = $request->created_by;
+                //             $activity->created_date = now();
+                //             $activity->save();
+                //         }
+                //     }
+                //     if (! empty($request->payment_status)) {
+                //         PaymentLogs::create([
+                //             'project_id' => $details->id,
+                //             'payment_id' => $details_p->id,
+                //             'payment_status' => $request->payment_status,
+                //             'reference_number' => $request->reference_number,
+                //             'reference_number_file' => $details_p->reference_number_file,
+                //             'created_by' => $request->created_by,
+                //             'created_date' => now(),
+                //         ]);
+                //     }
+                // }
+
+
                 if (! is_null($request->payment_status) && trim($request->payment_status) !== '') {
-                    // 1. Create main payment record
-                    $details_p = new PaymentStatusModel;
-                    $details_p->project_id = $details->id;
-                    $details_p->payment_status = $request->payment_status;
-                    $details_p->reference_number = $request->reference_number;
-                    $details_p->discounts = $request->discount;
-                    $details_p->created_by = $request->created_by;
+    // 1. Create main payment record
+    $details_p = new PaymentStatusModel;
+    $details_p->project_id = $details->id;
+    
+    // Use the nested payment_status if available, otherwise use the top-level one
+    $paymentStatusToUse = $request->payment_details[0]['payment_status'] ?? $request->payment_status;
+    $details_p->payment_status = $paymentStatusToUse;
+    
+    $details_p->reference_number = $request->reference_number;
+    $details_p->discounts = $request->discount;
+    $details_p->created_by = $request->created_by;
 
-                    $mainFiles = [];
+    $mainFiles = [];
 
-                    // Handle main payment files
-                    if ($request->hasFile('reference_number_file')) {
+    // Handle main payment files
+    if ($request->hasFile('reference_number_file')) {
+        $path = public_path('payment_screenshots');
+
+        if (! is_dir($path)) {
+            mkdir($path, 0775, true);
+        }
+
+        foreach ($request->file('reference_number_file') as $file) {
+            $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                .'_'.time().'_'.uniqid()
+                .'.'.$file->extension();
+
+            $file->move($path, $filename);
+            $mainFiles[] = $filename;
+        }
+
+        $details_p->reference_number_file = $mainFiles ?: null;
+    }
+
+    $details_p->save();
+
+    if ($request->has('payment_details') && is_array($request->payment_details)) {
+        foreach ($request->payment_details as $index => $pay) {
+            $paymentDetails = new PaymentDetails;
+            $paymentDetails->payment_id = $details_p->id;
+
+            $paymentDetails->payment = ! empty($pay['payment']) ? $pay['payment'] : '0';
+
+            // Use the nested payment_status if available, otherwise use the top-level one
+            $paymentDetails->payment_type = $pay['payment_status'] ?? $request->payment_status;
+            
+            $paymentDetails->reference_number = ! empty($pay['reference_number']) ? $pay['reference_number'] : ($request->reference_number ?? '');
+
+            $paymentDetails->payment_date = ! empty($pay['payment_date']) ? $pay['payment_date'] : now();
+
+            $detailFiles = [];
+
+            if ($request->hasFile("payment_details.{$index}.reference_number_file")) {
+                $detailFileInput = $request->file("payment_details.{$index}.reference_number_file");
+
+                $detailFilesToProcess = is_array($detailFileInput) ? $detailFileInput : [$detailFileInput];
+
+                foreach ($detailFilesToProcess as $file) {
+                    if ($file && $file->isValid()) {
+                        $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                            .'_'.time().'_'.uniqid().'_detail'
+                            .'.'.$file->extension();
+
                         $path = public_path('payment_screenshots');
 
                         if (! is_dir($path)) {
                             mkdir($path, 0775, true);
                         }
 
-                        foreach ($request->file('reference_number_file') as $file) {
-                            $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                                .'_'.time().'_'.uniqid()
-                                .'.'.$file->extension();
-
-                            $file->move($path, $filename);
-                            $mainFiles[] = $filename;
-                        }
-
-                        // $details_p->reference_number_file = ! empty($mainFiles) ? json_encode($mainFiles) : null;
-                        $details_p->reference_number_file = $mainFiles ?: null;
-                    }
-
-                    $details_p->save();
-
-                    if ($request->has('payment_details') && is_array($request->payment_details)) {
-                        foreach ($request->payment_details as $index => $pay) {
-                            $paymentDetails = new PaymentDetails;
-                            $paymentDetails->payment_id = $details_p->id;
-
-                            $paymentDetails->payment = ! empty($pay['payment']) ? $pay['payment'] : '0';
-
-                            // $paymentDetails->payment_type = ! empty($pay['payment_status']) ? $pay['payment_type'] : $request->payment_status;
-                             $paymentDetails->payment_type = $pay['payment_status'] ?? $request->payment_status;
-                            $paymentDetails->reference_number = ! empty($pay['reference_number']) ? $pay['reference_number'] : ($request->reference_number ?? '');
-
-                            $paymentDetails->payment_date = ! empty($pay['payment_date']) ? $pay['payment_date'] : now();
-
-                            $detailFiles = [];
-
-                            if ($request->hasFile("payment_details.{$index}.reference_number_file")) {
-                                $detailFileInput = $request->file("payment_details.{$index}.reference_number_file");
-
-                                $detailFilesToProcess = is_array($detailFileInput) ? $detailFileInput : [$detailFileInput];
-
-                                foreach ($detailFilesToProcess as $file) {
-                                    if ($file && $file->isValid()) {
-                                        $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                                            .'_'.time().'_'.uniqid().'_detail'
-                                            .'.'.$file->extension();
-
-                                        $path = public_path('payment_screenshots');
-
-                                        if (! is_dir($path)) {
-                                            mkdir($path, 0775, true);
-                                        }
-
-                                        $file->move($path, $filename);
-                                        $detailFiles[] = $filename;
-                                    }
-                                }
-
-                                // $paymentDetails->reference_number_file = ! empty($detailFiles) ? json_encode($detailFiles) : null;
-                                $paymentDetails->reference_number_file = $detailFiles ?: null;
-                            }
-
-                            $paymentDetails->save();
-
-                            $created = User::with('createdByUser')->find($request->created_by);
-                            $employee = $created?->employee_name ?? 'Mohamed Ali';
-                            $creator = $created?->createdByUser?->name ?? 'Admin';
-
-                            $paymentTypeForActivity = ! empty($pay['payment_type']) ? $pay['payment_type'] : $request->payment_status;
-                            $activityText = "Payment marked as {$paymentTypeForActivity} by {$employee} ({$creator})";
-
-                            $activity = new ProjectActivity;
-                            $activity->project_id = $details->id;
-                            $activity->activity = $activityText;
-                            $activity->role = $creator;
-                            $activity->created_by = $request->created_by;
-                            $activity->created_date = now();
-                            $activity->save();
-                        }
-                    }
-                    if (! empty($request->payment_status)) {
-                        PaymentLogs::create([
-                            'project_id' => $details->id,
-                            'payment_id' => $details_p->id,
-                            'payment_status' => $request->payment_status,
-                            'reference_number' => $request->reference_number,
-                            'reference_number_file' => $details_p->reference_number_file,
-                            'created_by' => $request->created_by,
-                            'created_date' => now(),
-                        ]);
+                        $file->move($path, $filename);
+                        $detailFiles[] = $filename;
                     }
                 }
+
+                $paymentDetails->reference_number_file = $detailFiles ?: null;
+            }
+
+            $paymentDetails->save();
+
+            $created = User::with('createdByUser')->find($request->created_by);
+            $employee = $created?->employee_name ?? 'Mohamed Ali';
+            $creator = $created?->createdByUser?->name ?? 'Admin';
+
+            // Use the nested payment_status for activity text
+            $paymentTypeForActivity = $pay['payment_status'] ?? $request->payment_status;
+            $activityText = "Payment marked as {$paymentTypeForActivity} by {$employee} ({$creator})";
+
+            $activity = new ProjectActivity;
+            $activity->project_id = $details->id;
+            $activity->activity = $activityText;
+            $activity->role = $creator;
+            $activity->created_by = $request->created_by;
+            $activity->created_date = now();
+            $activity->save();
+        }
+    }
+    
+    if (! empty($request->payment_status)) {
+        PaymentLogs::create([
+            'project_id' => $details->id,
+            'payment_id' => $details_p->id,
+            'payment_status' => $paymentStatusToUse, // Use the same status here too
+            'reference_number' => $request->reference_number,
+            'reference_number_file' => $details_p->reference_number_file,
+            'created_by' => $request->created_by,
+            'created_date' => now(),
+        ]);
+    }
+}
 
                 if ($request->has('payment_freelancer') && is_array($request->payment_freelancer)) {
                     foreach ($request->payment_freelancer as $pay) {
