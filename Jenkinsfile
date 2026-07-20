@@ -44,7 +44,7 @@ pipeline {
                     php artisan route:cache
                     php artisan view:cache
 
-                    echo "Staging backend deployment completed"
+                    echo "Staging backend deployment completed successfully"
                 '''
             }
         }
@@ -83,7 +83,7 @@ pipeline {
                     php artisan route:cache
                     php artisan view:cache
 
-                    echo "Production backend deployment completed"
+                    echo "Production backend deployment completed successfully"
                 '''
             }
         }
@@ -98,4 +98,3 @@ pipeline {
         }
     }
 }
-
