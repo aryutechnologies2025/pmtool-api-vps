@@ -8008,8 +8008,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate)
-                         ->where('is_deleted', 0);
+                        ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->whereHas('employee_rejected', function ($query) {
                     $query->where('status', '!=', 'rejected');
@@ -8022,8 +8021,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate)
-                         ->where('is_deleted', 0);
+                        ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'statistican')
@@ -8034,8 +8032,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate)
-                         ->where('is_deleted', 0);
+                        ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->whereIn('status', ['correction', 'plag_correction'])
                 ->where('type', 'statistican')
@@ -8046,8 +8043,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate)
-                         ->where('is_deleted', 0);
+                        ->whereDate('entry_date', '<=', $toDate);
+                        
                 })
                 ->where('status', 'need_support')
                 ->where('type', 'statistican')
@@ -8063,8 +8060,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 $query->where('process_status', '!=', 'completed')
                     ->where('is_deleted', 0)
                     ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate)
-                     ->where('is_deleted', 0);
+                    ->whereDate('entry_date', '<=', $toDate);
+                  
             })
             ->where(function ($query) {
                 $query->whereDoesntHave('employee_rejected')
@@ -11106,172 +11103,173 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
         return response()->json($responseData);
     }
 
-    public function monthWiseTable($position, $fromDate = null, $toDate = null)
-    {
-        if ($position === 'project_manager' || $position === 'admin' || $position === 'team_coordinator') {
-            // Get entries for the current year
-            $currentYear = date('Y');
-            if (! $fromDate) {
-                $fromDate = date('Y-m-d');
-            }
-            if (! $toDate) {
-                $toDate = date('Y-m-d');
-            }
-            // dd($selectedMonth);
-            $entries = EntryProcessModel::select('id', 'entry_date', 'type_of_work')->where('is_deleted', 0)
-                ->whereDate('entry_date', '>=', $fromDate)
-                ->whereDate('entry_date', '<=', $toDate)
-                // ->whereYear('entry_date', $currentYear)
-                ->get();
+   public function monthWiseTable($position, $fromDate = null, $toDate = null)
+{
+    if ($position === 'project_manager' || $position === 'admin' || $position === 'team_coordinator') {
+        // Get entries for the current year
+        $currentYear = date('Y');
+        if (! $fromDate) {
+            $fromDate = date('Y-m-d');
+        }
+        if (! $toDate) {
+            $toDate = date('Y-m-d');
+        }
+        
+        $entries = EntryProcessModel::select('id', 'entry_date', 'type_of_work')->where('is_deleted', 0)
+            ->whereDate('entry_date', '>=', $fromDate)
+            ->whereDate('entry_date', '<=', $toDate)
+            ->get();
 
-            $settingentries = Setting::first();
+        $settingentries = Setting::first();
 
-            if ($settingentries->project_target) {
-                $targetval = $settingentries->project_target;
-            } else {
-                $targetval = 92;
-            }
-
-            // Initialize an array to store monthly data
-            $monthlyData = [];
-            $footerTotals = [
-                'manuscript' => 0,
-                'statistics' => 0,
-                'thesis' => 0,
-                'others' => 0,
-                'total' => 0,
-                'manuscript_percentage' => 0,
-                'statistics_percentage' => 0,
-                'thesis_percentage' => 0,
-                'others_percentage' => 0,
-                'target_percentage' => 0,
-                // 'target_percentages' => 0,
-                'not_assigned' => 0,
-                'withdrawn' => 0,
-            ];
-
-            // Loop through each month of the year
-            for ($month = 1; $month <= 12; $month++) {
-                $monthEntries = $entries->filter(function ($entry) use ($month) {
-                    return date('m', strtotime($entry->entry_date)) == $month;
-                });
-
-                // Get counts of 'not_assigned' and 'withdrawal' projects for this month
-                $notAssignEntries = EntryProcessModel::where('is_deleted', 0)
-                    ->where('process_status', 'not_assigned')
-                    // ->whereYear('entry_date', $currentYear)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate)
-                    ->whereMonth('entry_date', $month)
-                    ->count();
-
-                $withdrawEntries = EntryProcessModel::where('is_deleted', 0)
-                    ->where('process_status', 'withdrawal')
-                    // ->whereYear('entry_date', $currentYear)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate)
-                    ->whereMonth('entry_date', $month)
-                    ->count();
-
-                $typeOfWorkCounts = [
-                    'manuscript' => 0,
-                    'thesis' => 0,
-                    'statistics' => 0,
-                    'presentation' => 0,
-                    'others' => 0,
-                ];
-
-                // Count entries by type_of_work
-                foreach ($monthEntries as $entry) {
-                    if (isset($typeOfWorkCounts[$entry->type_of_work])) {
-                        $typeOfWorkCounts[$entry->type_of_work]++;
-                    }
-                }
-
-                $totalCount = array_sum($typeOfWorkCounts);
-
-                $totalCount = max(0, $totalCount - ($notAssignEntries + $withdrawEntries));
-
-                // Calculate percentages for each type_of_work
-                $percentages = [];
-                foreach ($typeOfWorkCounts as $key => $count) {
-
-                    $percentages[$key] = $totalCount > 0 ? round(($count / $totalCount) * 100, 2) : 0;
-                }
-
-                // Calculate target percentage (based on a specific calculation you want)
-                $targetPercentage = $totalCount > 0 ? round(($totalCount / $targetval) * 100, 2) : 0;
-                $targetPercentages = $totalCount > 0 ? round(($totalCount / $targetval) * 12, 2) : 0;
-
-                $manuscript_percentage = $totalCount > 0
-                    ? round(($typeOfWorkCounts['manuscript'] / $totalCount) * 100, 2)
-                    : 0;
-
-                $statistics_percentage = $totalCount > 0
-                    ? round(($typeOfWorkCounts['statistics'] / $totalCount) * 100, 2)
-                    : 0;
-
-                $thesis_percentage = $totalCount > 0
-                    ? round(($typeOfWorkCounts['thesis'] / $totalCount) * 100, 2)
-                    : 0;
-
-                $others_percentage = $totalCount > 0
-                    ? round(($typeOfWorkCounts['others'] / $totalCount) * 100, 2)
-                    : 0;
-
-                // Add data for the current month
-                $monthlyData[] = [
-                    'month' => date('F', mktime(0, 0, 0, $month, 1)),
-                    'manuscript' => $typeOfWorkCounts['manuscript'],
-                    'statistics' => $typeOfWorkCounts['statistics'],
-                    'thesis' => $typeOfWorkCounts['thesis'],
-                    'others' => $typeOfWorkCounts['others'],
-                    // 'presentation' => $typeOfWorkCounts['presentation'],
-                    // 'total' => $totalCount,
-                    'total' => $totalCount,
-                    'manuscript_percentage' => $manuscript_percentage,
-                    'statistics_percentage' => $statistics_percentage,
-                    'thesis_percentage' => $thesis_percentage,
-                    'others_percentage' => $others_percentage,
-                    'target_percentage' => $targetPercentage,
-                    'not_assigned' => $notAssignEntries,
-                    'withdrawn' => $withdrawEntries,
-                ];
-
-                // Accumulate footer totals
-                $footerTotals['manuscript'] += $typeOfWorkCounts['manuscript'];
-                $footerTotals['statistics'] += $typeOfWorkCounts['statistics'];
-                $footerTotals['thesis'] += $typeOfWorkCounts['thesis'];
-                // $footerTotals['presentation'] += $typeOfWorkCounts['presentation'];
-                $footerTotals['others'] += $typeOfWorkCounts['others'];
-                $footerTotals['total'] += $totalCount;
-                $footerTotals['manuscript_percentage'] += $manuscript_percentage;
-                $footerTotals['statistics_percentage'] += $statistics_percentage;
-                $footerTotals['thesis_percentage'] += $thesis_percentage;
-                $footerTotals['others_percentage'] += $others_percentage;
-
-                $footerTotals['target_percentage'] += $targetPercentages;
-                // $footerTotals['target_percentages'] += $targetPercentages;
-                $footerTotals['not_assigned'] += $notAssignEntries;
-                $footerTotals['withdrawn'] += $withdrawEntries;
-            }
-
-            // $monthlyCount = count($monthlyData);
-            // if ($monthlyCount > 0) {
-            //     $footerTotals['manuscript_percentage'] = round($footerTotals['manuscript_percentage'] / $monthlyCount, 2);
-            //     $footerTotals['statistics_percentage'] = round($footerTotals['statistics_percentage'] / $monthlyCount, 2);
-            //     $footerTotals['thesis_percentage'] = round($footerTotals['thesis_percentage'] / $monthlyCount, 2);
-            //     $footerTotals['target_percentage'] = round($footerTotals['target_percentage'] / $monthlyCount, 2);
-            // }
-
-            return [
-                'monthlyData' => $monthlyData,
-                'footerTotals' => $footerTotals,
-            ];
+        if ($settingentries->project_target) {
+            $targetval = $settingentries->project_target;
+        } else {
+            $targetval = 92;
         }
 
-        return [];
+        // Initialize an array to store monthly data
+        $monthlyData = [];
+        $footerTotals = [
+            'manuscript' => 0,
+            'statistics' => 0,
+            'thesis' => 0,
+            'others' => 0,
+            'total' => 0,
+            'manuscript_percentage' => 0,
+            'statistics_percentage' => 0,
+            'thesis_percentage' => 0,
+            'others_percentage' => 0,
+            'target_percentage' => 0,
+            'not_assigned' => 0,
+            'withdrawn' => 0,
+        ];
+
+        // Loop through each month of the year
+        for ($month = 1; $month <= 12; $month++) {
+            $monthEntries = $entries->filter(function ($entry) use ($month) {
+                return date('m', strtotime($entry->entry_date)) == $month;
+            });
+
+            // Get counts of 'not_assigned' and 'withdrawal' projects for this month
+            $notAssignEntries = EntryProcessModel::where('is_deleted', 0)
+                ->where('process_status', 'not_assigned')
+                ->whereDate('entry_date', '>=', $fromDate)
+                ->whereDate('entry_date', '<=', $toDate)
+                ->whereMonth('entry_date', $month)
+                ->count();
+
+            $withdrawEntries = EntryProcessModel::where('is_deleted', 0)
+                ->where('process_status', 'withdrawal')
+                ->whereDate('entry_date', '>=', $fromDate)
+                ->whereDate('entry_date', '<=', $toDate)
+                ->whereMonth('entry_date', $month)
+                ->count();
+
+            $typeOfWorkCounts = [
+                'manuscript' => 0,
+                'thesis' => 0,
+                'statistics' => 0,
+                'presentation' => 0,
+                'others' => 0,
+            ];
+
+            // Count entries by type_of_work
+            foreach ($monthEntries as $entry) {
+                if (isset($typeOfWorkCounts[$entry->type_of_work])) {
+                    $typeOfWorkCounts[$entry->type_of_work]++;
+                }
+            }
+
+            $totalCount = array_sum($typeOfWorkCounts);
+
+            $totalCount = max(0, $totalCount - ($notAssignEntries + $withdrawEntries));
+
+            // Calculate percentages for each type_of_work
+            $percentages = [];
+            foreach ($typeOfWorkCounts as $key => $count) {
+                $percentages[$key] = $totalCount > 0 ? round(($count / $totalCount) * 100, 2) : 0;
+            }
+
+            // Calculate target percentage (based on a specific calculation you want)
+            $targetPercentage = $totalCount > 0 ? round(($totalCount / $targetval) * 100, 2) : 0;
+            $targetPercentages = $totalCount > 0 ? round(($totalCount / $targetval) * 12, 2) : 0;
+            
+            $manuscript_percentage = $totalCount > 0
+                ? round(($typeOfWorkCounts['manuscript'] / $totalCount) * 100, 2)
+                : 0;
+
+            $statistics_percentage = $totalCount > 0
+                ? round(($typeOfWorkCounts['statistics'] / $totalCount) * 100, 2)
+                : 0;
+
+            $thesis_percentage = $totalCount > 0
+                ? round(($typeOfWorkCounts['thesis'] / $totalCount) * 100, 2)
+                : 0;
+
+            $others_percentage = $totalCount > 0
+                ? round(($typeOfWorkCounts['others'] / $totalCount) * 100, 2)
+                : 0;
+
+            // Add data for the current month
+            $monthlyData[] = [
+                'month' => date('F', mktime(0, 0, 0, $month, 1)),
+                'manuscript' => $typeOfWorkCounts['manuscript'],
+                'statistics' => $typeOfWorkCounts['statistics'],
+                'thesis' => $typeOfWorkCounts['thesis'],
+                'others' => $typeOfWorkCounts['others'],
+                'total' => $totalCount,
+                'manuscript_percentage' => $manuscript_percentage,
+                'statistics_percentage' => $statistics_percentage,
+                'thesis_percentage' => $thesis_percentage,
+                'others_percentage' => $others_percentage,
+                'target_percentage' => $targetPercentage,
+                'not_assigned' => $notAssignEntries,
+                'withdrawn' => $withdrawEntries,
+            ];
+
+            // Accumulate footer totals
+            $footerTotals['manuscript'] += $typeOfWorkCounts['manuscript'];
+            $footerTotals['statistics'] += $typeOfWorkCounts['statistics'];
+            $footerTotals['thesis'] += $typeOfWorkCounts['thesis'];
+            $footerTotals['others'] += $typeOfWorkCounts['others'];
+            $footerTotals['total'] += $totalCount;
+            $footerTotals['not_assigned'] += $notAssignEntries;
+            $footerTotals['withdrawn'] += $withdrawEntries;
+        }
+
+        // ==============================================
+        // FIX: Calculate footer percentages from totals
+        // ==============================================
+        $footerTotals['manuscript_percentage'] = $footerTotals['total'] > 0 
+            ? round(($footerTotals['manuscript'] / $footerTotals['total']) * 100, 2) 
+            : 0;
+        
+        $footerTotals['statistics_percentage'] = $footerTotals['total'] > 0 
+            ? round(($footerTotals['statistics'] / $footerTotals['total']) * 100, 2) 
+            : 0;
+        
+        $footerTotals['thesis_percentage'] = $footerTotals['total'] > 0 
+            ? round(($footerTotals['thesis'] / $footerTotals['total']) * 100, 2) 
+            : 0;
+        
+        $footerTotals['others_percentage'] = $footerTotals['total'] > 0 
+            ? round(($footerTotals['others'] / $footerTotals['total']) * 100, 2) 
+            : 0;
+
+        // Calculate target percentage for footer
+        $footerTotals['target_percentage'] = $footerTotals['total'] > 0 
+            ? round(($footerTotals['total'] / $targetval) * 100, 2) 
+            : 0;
+
+        return [
+            'monthlyData' => $monthlyData,
+            'footerTotals' => $footerTotals,
+        ];
     }
+
+    return [];
+}
 
     public function projectStatusView(Request $request, $id)
     {
