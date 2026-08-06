@@ -224,14 +224,15 @@ class ReportsController extends Controller
     //     ]);
     // }
 
+
     public function getProjectPayment(Request $request)
     {
         $fromDate = $request->query('from_date');
         $toDate = $request->query('to_date');
 
         /*----------------------------------------------------
-        | Step 1: Total project payment grouped by type_of_work
-        ----------------------------------------------------*/
+    | Step 1: Total project payment grouped by type_of_work
+    ----------------------------------------------------*/
         $totalProjectPayment = EntryProcessModel::selectRaw(
             'type_of_work, COUNT(*) as count, SUM(budget) as total_budget'
         )
@@ -249,10 +250,18 @@ class ReportsController extends Controller
             ->get();
 
         /*----------------------------------------------------
-        | Step 2: Project payments with details
-        ----------------------------------------------------*/
+    | Step 2: Project payments with details
+    | - id is selected so we can tag every detail row with
+    |   its parent EntryProcessModel id (used in Step 3)
+    | - employeePaymentDetails is constrained to rows where
+    |   employee_id is NOT NULL, so unassigned payments never
+    |   enter the pipeline at all
+    ----------------------------------------------------*/
         $totalProjectPayments = EntryProcessModel::with([
-            'employeePaymentDetails:id,project_id,payment,type,status',
+            'employeePaymentDetails' => function ($query) {
+                $query->select('id', 'project_id', 'employee_id', 'payment', 'type', 'status')
+                    ->whereNotNull('employee_id');
+            },
             'journalPaymentDetails:id,project_id,payment,type,status',
         ])
             ->select('id', 'project_id', 'type_of_work')
@@ -262,39 +271,80 @@ class ReportsController extends Controller
             ->get();
 
         /*----------------------------------------------------
-        | Step 3: Freelance paid / unpaid / journal paid
-        ----------------------------------------------------*/
+    | Step 3: Freelance paid / unpaid / journal paid
+    | Each detail row is tagged with entry_process_id so the
+    | sums can be traced back to specific entries.
+    | whereNotNull('employee_id') is repeated here as a
+    | safety net in case this relation is ever loaded
+    | elsewhere without the Step 2 constraint.
+    ----------------------------------------------------*/
         $paidUnpaidPayments = $totalProjectPayments
             ->groupBy('type_of_work')
             ->map(function ($projects, $typeOfWork) {
 
-                $paid = $projects->flatMap(
-                    fn($p) => $p->employeePaymentDetails->where('status', 'paid')
+                $paidCollection = $projects->flatMap(function ($p) {
+                    return $p->employeePaymentDetails->where('status', 'paid')
                         ->whereIn('type', ['writer', 'reviewer'])
-                )->sum('payment');
+                        ->whereNotNull('employee_id')
+                        ->map(function ($detail) use ($p) {
+                            $detail->entry_process_id = $p->id;
+                            $detail->entry_process_id = $p->project_id;
+                            return $detail;
+                        });
+                });
 
-                $unpaid = $projects->flatMap(
-                    fn($p) => $p->employeePaymentDetails->where('status', 'pending')
+                $unpaidCollection = $projects->flatMap(function ($p) {
+                    return $p->employeePaymentDetails->where('status', 'pending')
                         ->whereIn('type', ['writer', 'reviewer'])
-                )->sum('payment');
+                        ->whereNotNull('employee_id')
+                        ->map(function ($detail) use ($p) {
+                            $detail->entry_process_id = $p->id;
+                            $detail->entry_process_id = $p->project_id;
+                            return $detail;
+                        });
+                });
 
-                $journalPaid = $projects->flatMap(
-                    fn($p) => $p->journalPaymentDetails
+                $journalPaidCollection = $projects->flatMap(function ($p) {
+                    return $p->journalPaymentDetails
                         ->where('status', 'paid')
                         ->where('type', 'publication_manager')
-                )->sum('payment');
+                        ->map(function ($detail) use ($p) {
+                            $detail->entry_process_id = $p->id;
+                            return $detail;
+                        });
+                });
 
                 return [
                     'type_of_work' => $typeOfWork,
-                    'paid_payment' => $paid,
-                    'unpaid_payment' => $unpaid,
-                    'journal_paid' => $journalPaid,
+
+                    'paid_payment' => $paidCollection->sum('payment'),
+                    'unpaid_payment' => $unpaidCollection->sum('payment'),
+                    'journal_paid' => $journalPaidCollection->sum('payment'),
+
+                    // distinct entry ids behind each figure
+                    'paid_project_ids' => $paidCollection->pluck('entry_process_id')->unique()->values(),
+                    'unpaid_project_ids' => $unpaidCollection->pluck('entry_process_id')->unique()->values(),
+                    'journal_paid_project_ids' => $journalPaidCollection->pluck('entry_process_id')->unique()->values(),
+
+                    // id + amount pairs, in case the same entry has multiple line items
+                    'paid_breakdown' => $paidCollection->map(fn($d) => [
+                        'entry_process_id' => $d->entry_process_id,
+                        'payment' => $d->payment,
+                    ])->values(),
+                    'unpaid_breakdown' => $unpaidCollection->map(fn($d) => [
+                        'entry_process_id' => $d->entry_process_id,
+                        'payment' => $d->payment,
+                    ])->values(),
+                    'journal_paid_breakdown' => $journalPaidCollection->map(fn($d) => [
+                        'entry_process_id' => $d->entry_process_id,
+                        'payment' => $d->payment,
+                    ])->values(),
                 ];
             });
 
         /*----------------------------------------------------
-        | Step 4: Payment status (amount received)
-        ----------------------------------------------------*/
+    | Step 4: Payment status (amount received)
+    ----------------------------------------------------*/
         $paymentStatus = PaymentStatusModel::with('paymentData', 'paymentLData', 'projectData')
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->where('is_deleted', 0)
@@ -305,8 +355,8 @@ class ReportsController extends Controller
             ->get();
 
         /*----------------------------------------------------
-        | Step 5: Final formatted response
-        ----------------------------------------------------*/
+    | Step 5: Final formatted response
+    ----------------------------------------------------*/
         $formattedData = $totalProjectPayment->map(function ($projectPayment) use ($paymentStatus, $paidUnpaidPayments) {
 
             $typeOfWork = $projectPayment->type_of_work;
@@ -322,6 +372,12 @@ class ReportsController extends Controller
                 'paid_payment' => 0,
                 'unpaid_payment' => 0,
                 'journal_paid' => 0,
+                'paid_project_ids' => [],
+                'unpaid_project_ids' => [],
+                'journal_paid_project_ids' => [],
+                'paid_breakdown' => [],
+                'unpaid_breakdown' => [],
+                'journal_paid_breakdown' => [],
             ];
 
             return [
@@ -330,9 +386,20 @@ class ReportsController extends Controller
                 'budget' => $projectPayment->total_budget,
                 'amount_received' => $received,
                 'amount_pending' => $projectPayment->total_budget - $received,
+
                 'Journal_paid_amount' => $freelanceData['journal_paid'],
                 'Freelance_paid' => $freelanceData['paid_payment'],
                 'Freelance_unpaid' => $freelanceData['unpaid_payment'],
+
+                // ids to verify the figures above
+                'Journal_paid_project_ids' => $freelanceData['journal_paid_project_ids'],
+                'Freelance_paid_project_ids' => $freelanceData['paid_project_ids'],
+                'Freelance_unpaid_project_ids' => $freelanceData['unpaid_project_ids'],
+
+                // detailed id => payment breakdowns
+                'Journal_paid_breakdown' => $freelanceData['journal_paid_breakdown'],
+                'Freelance_paid_breakdown' => $freelanceData['paid_breakdown'],
+                'Freelance_unpaid_breakdown' => $freelanceData['unpaid_breakdown'],
             ];
         });
 
