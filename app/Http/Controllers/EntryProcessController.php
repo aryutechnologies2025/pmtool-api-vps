@@ -13216,7 +13216,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             ->where('is_deleted', 0)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
-            ->where('process_status', '!=', 'completed');
+            ->whereIn('process_status', '!=', ['completed','withdrawal']);
 
         // Add dynamic whereHas filters
         $query->where(function ($q) use ($positions, $createdBy) {
