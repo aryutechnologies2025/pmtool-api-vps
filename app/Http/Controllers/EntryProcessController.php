@@ -7858,7 +7858,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 ->where('type', 'writer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->get()
                 ->pluck('projectData.id')
@@ -7923,7 +7924,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 ->where('type', 'reviewer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->get()
                 ->pluck('projectData.id')
@@ -7988,7 +7990,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 ->where('type', 'statistican')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->get()
                 ->pluck('projectData.id')
@@ -8005,7 +8008,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->whereHas('employee_rejected', function ($query) {
                     $query->where('status', '!=', 'rejected');
@@ -8018,7 +8022,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'statistican')
@@ -8029,7 +8034,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->whereIn('status', ['correction', 'plag_correction'])
                 ->where('type', 'statistican')
@@ -8040,7 +8046,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->where('status', 'need_support')
                 ->where('type', 'statistican')
@@ -8056,7 +8063,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 $query->where('process_status', '!=', 'completed')
                     ->where('is_deleted', 0)
                     ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
+                    ->whereDate('entry_date', '<=', $toDate)
+                     ->where('is_deleted', 0);
             })
             ->where(function ($query) {
                 $query->whereDoesntHave('employee_rejected')
@@ -8179,7 +8187,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 ->where('type', 'writer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->get()
                 ->pluck('projectData.id')
@@ -8196,7 +8205,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->whereHas('employee_rejected', function ($query) {
                     $query->where('status', '!=', 'rejected');
@@ -8210,7 +8220,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->count();
@@ -8221,7 +8232,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->where('status', 'need_support')
                 ->count();
@@ -8232,7 +8244,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->whereIn('status', ['correction', 'plag_correction'])
                 ->count();
@@ -8244,7 +8257,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 ->where('type', 'reviewer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->get()
                 ->pluck('projectData.id')
@@ -8308,7 +8322,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                 ->where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->get()
                 ->pluck('projectData.id')
@@ -8476,7 +8491,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
         $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
+                    ->whereDate('entry_date', '<=', $toDate)
+                     ->where('is_deleted', 0);
             })
             ->get()
             ->pluck('project_id')
@@ -8492,7 +8508,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                     $query->where('type_of_work', 'thesis')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                         ->where('is_deleted', 0);
                 })
                 ->where('type', 'writer')
                 ->get()
