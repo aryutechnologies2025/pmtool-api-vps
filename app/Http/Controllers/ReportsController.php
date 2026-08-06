@@ -833,6 +833,8 @@ class ReportsController extends Controller
     //     return response()->json($response);
     // }
 
+
+
     public function yearly_process_report()
     {
         // Get distinct years from the database based on 'updated_at' and 'created_at' fields
@@ -840,6 +842,9 @@ class ReportsController extends Controller
             ->union(EntryProcessModel::selectRaw('YEAR(created_at) as year'))
             ->orderBy('year', 'desc')
             ->pluck('year')
+            ->filter() // drop null years (e.g. from null timestamps)
+            ->unique()
+            ->values()
             ->toArray();
 
         if (empty($years)) {
@@ -883,7 +888,9 @@ class ReportsController extends Controller
             foreach ($months as $num => $month) {
 
                 // External writer/reviewer payments
+                // employee_id must be present - unassigned payments don't count
                 $external = EmployeePaymentDetails::whereIn('type', ['writer', 'reviewer'])
+                    ->whereNotNull('employee_id')
                     ->whereMonth('updated_at', $num)
                     ->whereYear('updated_at', $year)
                     ->sum(DB::raw('COALESCE(payment, 0)'));
@@ -905,9 +912,11 @@ class ReportsController extends Controller
                 }
 
                 // Journal payments
+                // employee_id must be present - unassigned payments don't count
                 $journal_report = EmployeePaymentDetails::whereMonth('updated_at', $num)
                     ->whereYear('updated_at', $year)
                     ->where('type', 'publication_manager')
+                    ->whereNotNull('employee_id')
                     ->sum(DB::raw('COALESCE(payment, 0)'));
 
                 // Budget and total count
@@ -951,6 +960,7 @@ class ReportsController extends Controller
 
     //based on the type of work for the payment report
 
+
     public function getTypeOfWorkReport(Request $request)
     {
         $years = EntryProcessModel::where('is_deleted', 0)
@@ -988,14 +998,18 @@ class ReportsController extends Controller
                 $entryIds = $entries->pluck('id')->toArray();
 
                 // Filter freelancer (writer + reviewer) payments by entry_id and year
+                // employee_id must be present - unassigned payments don't count
                 $freelancer_payment = EmployeePaymentDetails::whereIn('type', ['writer', 'reviewer'])
                     ->whereIn('project_id', $entryIds)
+                    ->whereNotNull('employee_id')
                     ->whereYear('updated_at', $year)
                     ->sum(DB::raw('COALESCE(payment, 0)'));
 
                 // Filter journal (publication_manager) payments by entry_id and year
+                // employee_id must be present - unassigned payments don't count
                 $journal_payment = EmployeePaymentDetails::where('type', 'publication_manager')
                     ->whereIn('project_id', $entryIds)
+                    ->whereNotNull('employee_id')
                     ->whereYear('updated_at', $year)
                     ->sum(DB::raw('COALESCE(payment, 0)'));
 
@@ -1012,6 +1026,7 @@ class ReportsController extends Controller
                 $totalExpense += $expense;
                 $totalIncome += $income;
             }
+            unset($item); // break reference from foreach (&$item)
 
             $total_data = [
                 'year' => $year,
@@ -1032,21 +1047,17 @@ class ReportsController extends Controller
         return response()->json($result);
     }
 
+
     public function getTotalPayment(Request $request)
     {
-
         $years = PaymentStatusModel::selectRaw('YEAR(updated_at) as year')
             ->union(EntryProcessModel::selectRaw('YEAR(created_at) as year'))
             ->orderBy('year', 'desc')
             ->pluck('year')
+            ->filter() // drop null years (e.g. from null timestamps)
+            ->unique()
+            ->values()
             ->toArray();
-
-        // Initialize data array
-        // $data = [
-        //     ['Year' => '2023', 'Total_Project' => 0, 'Budget' => 0, 'Expense' => 0, 'Total_Received_Amount' => 0, 'Income' => 0, 'Income_percentage' => 0],
-        //     ['Year' => '2024', 'Total_Project' => 0, 'Budget' => 0, 'Expense' => 0, 'Total_Received_Amount' => 0, 'Income' => 0, 'Income_percentage' => 0],
-        //     ['Year' => '2025', 'Total_Project' => 0, 'Budget' => 0, 'Expense' => 0, 'Total_Received_Amount' => 0, 'Income' => 0, 'Income_percentage' => 0]
-        // ];
 
         $data = [];
 
@@ -1064,10 +1075,10 @@ class ReportsController extends Controller
 
         // Fetch data for each year
         foreach ($data as &$yearData) {
-            $year = $yearData['Year'];
+            $year = (int) $yearData['Year'];
 
             // Fetch all entries for the given year
-            $entries = EntryProcessModel::whereYear('created_at', $year)
+            $entries = EntryProcessModel::whereYear('entry_date', $year)
                 ->where('is_deleted', 0)
                 ->get();
 
@@ -1079,13 +1090,16 @@ class ReportsController extends Controller
                 ->where('is_deleted', 0)
                 ->sum(DB::raw('COALESCE(payment, 0)'));
 
+            // Freelancer payments: only count rows with a real employee_id
             $freelancer_payment = EmployeePaymentDetails::whereIn('type', ['writer', 'reviewer'])
-
+                ->whereNotNull('employee_id')
                 ->whereYear('updated_at', $year)
                 ->sum(DB::raw('COALESCE(payment, 0)'));
 
-            $journal_payment = EmployeePaymentDetails::whereYear('updated_at', $year)
-                ->where('type', 'publication_manager')
+            // Journal payments: only count rows with a real employee_id
+            $journal_payment = EmployeePaymentDetails::where('type', 'publication_manager')
+                ->whereNotNull('employee_id')
+                ->whereYear('updated_at', $year)
                 ->sum(DB::raw('COALESCE(payment, 0)'));
 
             // Calculate total expense
@@ -1105,6 +1119,7 @@ class ReportsController extends Controller
             $yearData['Income'] = $totalIncome;
             $yearData['Income_percentage'] = round($incomePercentage, 2);
         }
+        unset($yearData); // break reference from foreach (&$yearData)
 
         return response()->json($data);
     }
@@ -3137,7 +3152,7 @@ class ReportsController extends Controller
             ];
 
             foreach ($entries as $entry) {
-                $diffInDays = $now->diffInDays($entry->created_at);
+                $diffInDays = $now->diffInDays($entry->entry_date);
 
                 if ($diffInDays < 14) {
                     $statusData['two_weeks']++;
