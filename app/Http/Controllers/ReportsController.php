@@ -913,10 +913,18 @@ class ReportsController extends Controller
 
                 // Journal payments
                 // employee_id must be present - unassigned payments don't count
-                $journal_report = EmployeePaymentDetails::whereMonth('updated_at', $num)
-                    ->whereYear('updated_at', $year)
-                    ->where('type', 'publication_manager')
+                // $journal_report = EmployeePaymentDetails::whereMonth('updated_at', $num)
+                //     ->whereYear('updated_at', $year)
+                //     ->where('type', 'publication_manager')
+                //     ->whereNotNull('employee_id')
+                //     ->sum(DB::raw('COALESCE(payment, 0)'));
+
+                $journal_report = EmployeePaymentDetails::where('type', 'publication_manager')
                     ->whereNotNull('employee_id')
+                    ->whereHas('entryProcess', function ($q) use ($num, $year) {
+                        $q->whereMonth('entry_date', $num)
+                            ->whereYear('entry_date', $year);
+                    })
                     ->sum(DB::raw('COALESCE(payment, 0)'));
 
                 // Budget and total count

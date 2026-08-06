@@ -1101,6 +1101,7 @@ class ProjectController extends Controller
         //     ->whereYear('created_at', $year)
         //     ->sum('payment');
         $journal_records = EmployeePaymentDetails::where('type', 'publication_manager')
+        ->whereNotNull('employee_id')
             ->whereHas('entryProcess', function ($q) use ($months, $year) {
                 $q->whereMonth('entry_date', $months)
                     ->whereYear('entry_date', $year);
