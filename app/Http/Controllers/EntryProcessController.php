@@ -11258,10 +11258,9 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             : 0;
 
         // Calculate target percentage for footer
-        $footerTotals['target_percentage'] += $targetPercentages;
-        // $footerTotals['target_percentage'] = $footerTotals['total'] > 0 
-        //     ? round(($footerTotals['total'] / $targetval) * 100, 2) 
-        //     : 0;
+        $footerTotals['target_percentage'] = $footerTotals['total'] > 0 
+            ? round(($footerTotals['total'] / $targetval) * 12, 2) 
+            : 0;
 
         return [
             'monthlyData' => $monthlyData,
