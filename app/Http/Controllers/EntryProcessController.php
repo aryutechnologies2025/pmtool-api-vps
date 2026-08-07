@@ -9194,7 +9194,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
         )
             ->where('hierarchy_level', 'urgent_important')
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
             // ->whereYear('entry_date', $currentYear)
@@ -10186,7 +10186,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
 
         $urgentDataList = EntryProcessModel::select('id', 'journal', 'writer', 'statistican', 'reviewer', 'hierarchy_level', 'project_id')->where('hierarchy_level', 'urgent_important')
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             // ->whereYear('entry_date', $currentYear)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
@@ -13720,9 +13720,9 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             if (! empty($count_type)) {
                 if ($count_type === 'emergency_work') {
                     if ($created_by) {
-                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->where('process_status', '!=', 'completed');
+                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->whereNotIn('process_status', ['completed', 'withdrawal']);
                     } else {
-                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->where('process_status', '!=', 'completed');
+                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->whereNotIn('process_status', ['completed', 'withdrawal']);
                     }
                 } elseif ($count_type === 'not_assigned_work') {
                     $totalProjectsQuery = $totalProjectsQuery->where('process_status', 'not_assigned');
@@ -13768,7 +13768,8 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                         'client_name',
                         DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration"),
                         'hierarchy_level',
-                        'project_id'
+                        'project_id',
+                        'process_status'
                     )
                         ->where('projectduration', '<', $currentDate)
                         ->where('is_deleted', 0)
@@ -13791,6 +13792,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                                 'entry_date' => $items->entry_date,
                                 'payment_status' => $items->paymentProcess->payment_status ?? '-',
                                 'client_name' => $items->client_name,
+                                'process_status' => $items->process_status
                             ];
                         });
 
@@ -14978,9 +14980,6 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
             $result = [];
 
             foreach ($employees as $employee) {
-                // If you need to get creator name from users table
-                // Load the creator relationship (you'll need to use Eloquent model instead of DB query)
-                // Or query users table directly
                 if ($employee->position === '7,8') {
                     $creator = 'Writer, Reviewer';
                 } else {
@@ -14989,6 +14988,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
                         ->where('id', $employee->position)
                         ->value('name') ?? 'Admin';
                 }
+
 
                 $result[] = [
                     'id' => $employee->id,
