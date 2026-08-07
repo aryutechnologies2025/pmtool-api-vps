@@ -2511,7 +2511,7 @@ class ReportsController extends Controller
         $projectIds = $logs->pluck('project_id')->unique()->toArray();
 
         $entryProcesses = EntryProcessModel::whereIn('id', $projectIds)
-            ->orWhereIn('project_id', $projectIds)
+            ->orWhereIn('project_id', $projectIds) 
             ->get()
             ->keyBy(function ($item) {
                 return $item->project_id ?? $item->id;

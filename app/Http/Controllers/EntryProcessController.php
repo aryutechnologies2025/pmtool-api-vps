@@ -14972,7 +14972,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
         try {
             $employees = DB::connection('mysql_medics_hrms')
                 ->table('employee_details')
-                ->whereNotIn('position', ['Admin', '13', '14', '27', '28', '23', '42'])
+                ->whereNotIn('position', ['Admin', '13', '14', '27', '28', '23', '42','11'])
                 ->select('id', 'employee_name', 'position')
                 ->where('status', '1')
                 ->get();
