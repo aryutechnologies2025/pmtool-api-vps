@@ -172,7 +172,10 @@ class SmeController extends Controller
                 'partial_payment_pending',
                 'final_payment_pending',
                 'journal_payment_pending',
-            ])
+            ])->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0);
+
+            })
             ->get();
 
         $paymentStatusCounts = $paymentEntries->groupBy('payment_status')->map(function ($group) {
