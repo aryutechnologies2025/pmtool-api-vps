@@ -21,46 +21,6 @@ use Illuminate\Support\Facades\Log;
 class ReportsController extends Controller
 {
     //process report
-    // public function getProcessReport()
-    // {
-    //     $statuses = ['not_assigned', 'withdrawal', 'in_progress', 'completed'];
-
-    //     $projects = EntryProcessModel::selectRaw('type_of_work, process_status, COUNT(*) as count')
-    //         ->groupBy('type_of_work', 'process_status')
-    //         ->where('process_status', '!=', 'completed')
-    //         ->where('is_deleted', 0)
-    //         ->get();
-
-    //     $formattedData = [];
-
-    //     foreach ($projects as $project) {
-    //         $typeOfWork = $project->type_of_work;
-    //         $status = $project->process_status;
-    //         $count = $project->count;
-
-    //         if (!isset($formattedData[$typeOfWork])) {
-    //             $formattedData[$typeOfWork] = array_fill_keys($statuses, 0);
-    //         }
-
-    //         $formattedData[$typeOfWork][$status] = $count;
-    //     }
-
-    //     $result = [];
-    //     foreach ($formattedData as $typeOfWork => $statusCounts) {
-    //         $result[] = [
-    //             'type_of_work' => $typeOfWork,
-    //             'total_count' => array_sum($statusCounts),
-    //             'not_assigned' => $statusCounts['not_assigned'],
-    //             'withdrawal' => $statusCounts['withdrawal'],
-    //             'in_progress' => $statusCounts['in_progress'],
-    //             'completed' => $statusCounts['completed'],
-    //         ];
-    //     }
-
-    //     return response()->json([
-    //         'details' => $result
-    //     ]);
-    // }
 
     public function getProcessReport(Request $request)
     {
@@ -139,90 +99,6 @@ class ReportsController extends Controller
         return response()->json(['details' => $result]);
     }
 
-    // public function getProjectPayment()
-    // {
-    //     $totalProjectPayment = EntryProcessModel::selectRaw('type_of_work, COUNT(*) as count, SUM(budget) as total_budget')
-    //         ->with(['journalPaymentDetails', 'paymentProcess.paymentData' => function ($query) {
-    //         $query->select('id', 'payment_id', 'payment', 'payment_date')
-    //             ->where('is_deleted', 0);
-    //         }])
-    //         ->groupBy('type_of_work')
-    //         ->get();
-
-    //     $totalProjectPayments = EntryProcessModel::with(['employeePaymentDetails:id,payment,type', 'journalPaymentDetails:id,payment'])
-    //         ->select('id', 'project_id', 'type_of_work')
-    //         ->where('is_deleted', 0)
-    //         ->get();
-
-    //     $paidUnpaidPayments = $totalProjectPayments->groupBy('type_of_work')->map(function ($projects, $typeOfWork) {
-    //         $paid = $projects->flatMap(function ($project) {
-    //         return $project->employeePaymentDetails->where('status','paid');
-    //         })->sum('payment');
-
-    //         $unpaid = $projects->flatMap(function ($project) {
-    //         return $project->employeePaymentDetails->where('status', 'pending');
-    //         })->count();
-
-    //         $journalPaid = $projects->flatMap(function ($project) {
-    //         return $project->journalPaymentDetails;
-    //         })->sum('payment');
-
-    //         return [
-    //         'type_of_work' => $typeOfWork,
-    //         'paid_payment' => $paid,
-    //         'unpaid_payment_count' => $unpaid,
-    //         'journal_paid' => $journalPaid,
-    //         ];
-    //     });
-
-    //     return response()->json([
-    //         'total_project_payment' => $totalProjectPayment,
-    //         'paid_unpaid_payments' => $paidUnpaidPayments,
-    //     ]);
-
-    //     $paymentStatus = PaymentStatusModel::with('paymentData','paymentLData')
-    //         ->orderBy('created_at', 'desc')
-    //         ->get();
-
-    //     $formattedData = $totalProjectPayment->map(function ($projectPayment) use ($paymentStatus) {
-    //         $paymentFields = [
-    //             'amount_received' => 0,
-    //             'amount_pending' => $projectPayment->total_budget,
-    //         ];
-
-    //         foreach ($paymentStatus as $status) {
-    //             if ($status->projectData->type_of_work === $projectPayment->type_of_work) {
-    //                 foreach ($status->paymentData as $payment) {
-    //                     $paymentFields['amount_received'] += $payment->payment;
-    //                 }
-    //             }
-    //         }
-
-    //         // Calculate the amount pending
-    //         $paymentFields['amount_pending'] = $projectPayment->total_budget - $paymentFields['amount_received'];
-
-    //         return [
-    //             'type_of_project' => $projectPayment->type_of_work,
-    //             'total_project_count' => $projectPayment->count,
-    //             'budget' => $projectPayment->total_budget,
-    //             'amount_received' => $paymentFields['amount_received'],
-    //             'amount_pending' => $paymentFields['amount_pending'],
-    //             'Journal_paid_amount' =>'0',
-    //             'Freelance_paid' => '0',
-    //             'Freelance_unpaid' => '0',
-    //         ];
-    //     });
-
-    //     // $employee_payment = EmployeePaymentDetails::where('project_id', $totalProjectPayment->id)
-    //     // ->where('type', 'publication_manager')
-    //     // ->sum('payment');
-
-    //     return response()->json([
-    //         'details' => $formattedData,
-    //         'total_project_payment' => $totalProjectPayments,
-    //         // 'employee_payment' => $employee_payment,
-    //     ]);
-    // }
 
 
     public function getProjectPayment(Request $request)
@@ -577,272 +453,13 @@ class ReportsController extends Controller
         ]);
     }
 
-    // public function yearly_process_report()
-    // {
-    //     // Get distinct years from the database based on 'updated_at' and 'created_at' fields
-    //     $years = PaymentStatusModel::selectRaw('YEAR(updated_at) as year')
-    //         ->union(EntryProcessModel::selectRaw('YEAR(created_at) as year'))
-    //         ->orderBy('year', 'desc')
-    //         ->pluck('year')
-    //         ->toArray();
-
-    //     if (empty($years)) {
-    //         return response()->json(['message' => 'No data available']);
-    //     }
-
-    //     // Define an array of month names
-    //     $months = [
-    //         '01' => 'January',
-    //         '02' => 'February',
-    //         '03' => 'March',
-    //         '04' => 'April',
-    //         '05' => 'May',
-    //         '06' => 'June',
-    //         '07' => 'July',
-    //         '08' => 'August',
-    //         '09' => 'September',
-    //         '10' => 'October',
-    //         '11' => 'November',
-    //         '12' => 'December',
-
-    //         // 'yearly_total' => [
-    //         //     'total_year' => 'yearly_total',
-    //         //     'writer_reviewer_payment' => 0,
-    //         //     'office_emp_salary' => 0,
-    //         //     'journal_payment' => 0,
-    //         //     'total_budget' => 0,
-    //         //     'total_count' => 0
-    //         // ]
-    //     ];
-
-    //     $response = [];
-
-    //     // foreach ($years as $year) {
-    //     //     $year_data = [
-    //     //         'year' => $year,
-    //     //         'months' => [],
-    //     // 'yearly_total' => [
-    //     //     'writer_reviewer_payment' => 0,
-    //     //     'office_emp_salary' => 0,
-    //     //     'journal_payment' => 0,
-    //     //     'total_budget' => 0,
-    //     //     'total_count' => 0
-    //     // ]
-    //     //     ];
-
-    //     foreach ($years as $year) {
-    //         $yearly_total = [
-    //             'total_year' => 'yearly_total',
-    //             'writer_reviewer_payment' => 0,
-    //             'office_emp_salary' => 0,
-    //             'journal_payment' => 0,
-    //             'total_budget' => 0,
-    //             'total_count' => 0
-    //         ];
-
-    //         $year_data = [
-    //             'year' => $year,
-    //             'months' => [],
-    //             'yearly_total' => $yearly_total
-    //         ];
-
-    //         foreach ($months as $num => $month) {
-    //             // $external_source = People::select('id')
-    //             //     ->where('employee_name', '!=', 'Admin')
-    //             //     ->where('employee_type', 'freelancers')
-    //             //     ->whereIn('position', [7, 8, 10, 11])
-    //             //     ->get();
-    //             // $externalEmployeeIds = $external_source->pluck('id')->toArray();
-
-    //             $external = EmployeePaymentDetails::whereIn('type', ['writer', 'reviewer'])
-    //                 ->whereMonth('updated_at', $num)
-    //                 ->whereYear('updated_at', $year)
-    //                 ->sum(DB::raw('COALESCE(payment, 0)'));
-
-    //             // $internal_source = People::select('id')
-    //             //     ->where('employee_name', '!=', 'Admin')
-    //             //     ->whereIn('employee_type', ['full_time', 'part_time'])
-    //             //     ->whereIn('position', [7, 8, 10, 11])
-    //             //     ->get();
-    //             // $internalEmployeeIds = $internal_source->pluck('id')->toArray();
-
-    //             // $internal = PaymentStatusModel::where(function ($query) use ($internalEmployeeIds) {
-    //             //         $query->whereIn('writer_id', $internalEmployeeIds)
-    //             //               ->orWhereIn('reviewer_id', $internalEmployeeIds);
-    //             //     })
-    //             //     ->whereMonth('updated_at', $num)
-    //             //     ->whereYear('updated_at', $year)
-    //             //     ->sum(DB::raw('COALESCE(writer_payment, 0) + COALESCE(reviewer_payment, 0)'));
-
-    //             $journal_report = EmployeePaymentDetails::whereMonth('updated_at', $num)
-    //                 ->whereYear('updated_at', $year)
-    //                 ->where('type', 'publication_manager')
-    //                 ->sum(DB::raw('COALESCE(payment, 0)'));
-
-    //             $budget = EntryProcessModel::where('is_deleted', 0)
-    //                 ->whereMonth('created_at', $num)
-    //                 ->whereYear('created_at', $year)
-    //                 ->sum('budget');
-
-    //             $total_count = EntryProcessModel::where('is_deleted', 0)
-    //                 ->whereMonth('created_at', $num)
-    //                 ->whereYear('created_at', $year)
-    //                 ->count();
-
-    //             // Store monthly data
-    //             $month_data = [
-    //                 'month' => $month,
-    //                 'writer_reviewer_payment' => $external ?? 0,
-    //                 //'office_emp_salary' => $internal ?? 0,
-    //                 'journal_payment' => $journal_report ?? 0,
-    //                 'total_budget' => $budget ?? 0,
-    //                 'total_count' => $total_count ?? 0,
-    //             ];
-
-    //             // Add monthly data to the 'months' array
-    //             $year_data['months'][] = $month_data;
-
-    //             // Accumulate yearly totals
-    //             $year_data['yearly_total']['writer_reviewer_payment'] += $external ?? 0;
-    //             // $year_data['yearly_total']['office_emp_salary'] += $internal ?? 0;
-    //             $year_data['yearly_total']['journal_payment'] += $journal_report ?? 0;
-    //             $year_data['yearly_total']['total_budget'] += $budget ?? 0;
-    //             $year_data['yearly_total']['total_count'] += $total_count ?? 0;
-    //         }
-
-    //         // Add year-wise data to response
-    //         $response[] = $year_data;
-    //     }
-
-    //     return response()->json($response);
-    // }
-
-    // public function yearly_process_report()
-    // {
-    //     // Get distinct years from DB
-    //     $years = PaymentStatusModel::selectRaw('YEAR(updated_at) as year')
-    //         ->union(EntryProcessModel::selectRaw('YEAR(created_at) as year'))
-    //         ->orderBy('year', 'desc')
-    //         ->pluck('year')
-    //         ->toArray();
-
-    //     if (empty($years)) {
-    //         return response()->json(['message' => 'No data available']);
-    //     }
-
-    //     // Month list
-    //     $months = [
-    //         '01' => 'January',
-    //         '02' => 'February',
-    //         '03' => 'March',
-    //         '04' => 'April',
-    //         '05' => 'May',
-    //         '06' => 'June',
-    //         '07' => 'July',
-    //         '08' => 'August',
-    //         '09' => 'September',
-    //         '10' => 'October',
-    //         '11' => 'Nov',
-    //         '12' => 'December'
-    //     ];
-
-    //     $response = [];
-
-    //     foreach ($years as $year) {
-
-    //         $year_data = [
-    //             'year' => $year,
-    //             'months' => [],
-    //             'yearly_total' => [
-    //                 'writer_reviewer_payment' => 0,
-    //                 'office_emp_salary' => 0,
-    //                 'journal_payment' => 0,
-    //                 'total_budget' => 0,
-    //                 'total_count' => 0,
-    //             ]
-    //         ];
-
-    //         foreach ($months as $num => $month) {
-
-    //             // Get external (writer & reviewer payments)
-    //             $external = EmployeePaymentDetails::whereIn('type', ['writer', 'reviewer'])
-    //                 ->whereMonth('updated_at', $num)
-    //                 ->whereYear('updated_at', $year)
-    //                 ->sum(DB::raw('COALESCE(payment, 0)'));
-
-    //             // 🔥 **NEW** — Fetch office employees salary from HRMS API
-    //             $office_emp_salary = 0;
-    //             try {
-    //                 $responseAPI = Http::get(
-    //                     'https://hrmsapi.medicsresearch.com/api/emp-attendances/monthly-report',
-    //                     [
-    //                         'month' => $month,
-    //                         'year' => $year
-    //                     ]
-    //                 );
-
-    //                 if ($responseAPI->successful()) {
-    //                     $data = $responseAPI->json();
-    //                     $office_emp_salary = collect($data)->sum('total_salary_with_ot');
-    //                 }
-    //             } catch (\Exception $e) {
-    //                 \Log::error('HRMS Payroll API error: ' . $e->getMessage());
-    //             }
-
-    //             // Journal manager payment
-    //             $journal_report = EmployeePaymentDetails::whereMonth('updated_at', $num)
-    //                 ->whereYear('updated_at', $year)
-    //                 ->where('type', 'publication_manager')
-    //                 ->sum(DB::raw('COALESCE(payment, 0)'));
-
-    //             // Budget
-    //             $budget = EntryProcessModel::where('is_deleted', 0)
-    //                 ->whereMonth('created_at', $num)
-    //                 ->whereYear('created_at', $year)
-    //                 ->sum('budget');
-
-    //             // Entry count
-    //             $total_count = EntryProcessModel::where('is_deleted', 0)
-    //                 ->whereMonth('created_at', $num)
-    //                 ->whereYear('created_at', $year)
-    //                 ->count();
-
-    //             // Store monthly data
-    //             $month_data = [
-    //                 'month' => $month,
-    //                 'writer_reviewer_payment' => $external ?? 0,
-    //                 'office_emp_salary' => $office_emp_salary ?? 0,
-    //                 'journal_payment' => $journal_report ?? 0,
-    //                 'total_budget' => $budget ?? 0,
-    //                 'total_count' => $total_count ?? 0,
-    //             ];
-
-    //             $year_data['months'][] = $month_data;
-
-    //             // Accumulate totals
-    //             $year_data['yearly_total']['writer_reviewer_payment'] += $external;
-    //             $year_data['yearly_total']['office_emp_salary'] += $office_emp_salary;
-    //             $year_data['yearly_total']['journal_payment'] += $journal_report;
-    //             $year_data['yearly_total']['total_budget'] += $budget;
-    //             $year_data['yearly_total']['total_count'] += $total_count;
-    //         }
-
-    //         $response[] = $year_data;
-    //     }
-
-    //     return response()->json($response);
-    // }
-
-
-
     public function yearly_process_report()
     {
-        // Get distinct years from the database based on 'updated_at' and 'created_at' fields
         $years = PaymentStatusModel::selectRaw('YEAR(updated_at) as year')
             ->union(EntryProcessModel::selectRaw('YEAR(created_at) as year'))
             ->orderBy('year', 'desc')
             ->pluck('year')
-            ->filter() // drop null years (e.g. from null timestamps)
+            ->filter()
             ->unique()
             ->values()
             ->toArray();
@@ -851,7 +468,6 @@ class ReportsController extends Controller
             return response()->json(['message' => 'No data available']);
         }
 
-        // Define an array of month names
         $months = [
             '01' => 'January',
             '02' => 'February',
@@ -1132,217 +748,217 @@ class ReportsController extends Controller
         return response()->json($data);
     }
 
-  public function projectList(Request $request)
-{
-    $fromDate = $request->query('from_date');
-    $toDate = $request->query('to_date');
+    public function projectList(Request $request)
+    {
+        $fromDate = $request->query('from_date');
+        $toDate = $request->query('to_date');
 
-    // Check if id is '0' and return empty response immediately
-    if ($request->filled('id') && $request->id === '0') {
-        return response()->json([]);
-    }
-
-    $query = EntryProcessModel::with([
-        'institute:id,name',
-        'department:id,name',
-        'profession:id,name',
-        'writerData',
-        'reviewerData',
-        'statisticanData',
-        'journalData',
-        'paymentProcess',
-        'employeePaymentDetails',
-    ])
-        ->select('id', 'project_id', 'department', 'institute', 'client_name', 'profession', 'title', 'type_of_work', 'process_status', 'process_date', 'budget')
-        ->where('is_deleted', 0);
-
-    if ($fromDate) {
-        $query->whereDate('entry_date', '>=', $fromDate);
-    }
-
-    if ($toDate) {
-        $query->whereDate('entry_date', '<=', $toDate);
-    }
-
-    if ($request->filled('id')) {
-        $idString = $request->id;
-        $idString = trim($idString, '[]');
-        $ids = explode(',', $idString);
-        $ids = array_map('trim', $ids);
-        // Filter out '0' values if any (optional, but good practice)
-        $ids = array_filter($ids, function($id) {
-            return $id !== '0' && $id !== 0;
-        });
-        if (!empty($ids)) {
-            $query->whereIn('id', $ids);
-        } else {
-            // If all ids are 0, return empty
+        // Check if id is '0' and return empty response immediately
+        if ($request->filled('id') && $request->id === '0') {
             return response()->json([]);
         }
-    }
 
-    if ($request->filled('project_id')) {
-        $query->where('project_id', $request->project_id);
-    }
+        $query = EntryProcessModel::with([
+            'institute:id,name',
+            'department:id,name',
+            'profession:id,name',
+            'writerData',
+            'reviewerData',
+            'statisticanData',
+            'journalData',
+            'paymentProcess',
+            'employeePaymentDetails',
+        ])
+            ->select('id', 'project_id', 'department', 'institute', 'client_name', 'profession', 'title', 'type_of_work', 'process_status', 'process_date', 'budget')
+            ->where('is_deleted', 0);
 
-    if ($request->filled('institute')) {
-        $query->whereHas('institute', function ($q) use ($request) {
-            $q->where('name', 'like', '%' . $request->institute . '%');
+        if ($fromDate) {
+            $query->whereDate('entry_date', '>=', $fromDate);
+        }
+
+        if ($toDate) {
+            $query->whereDate('entry_date', '<=', $toDate);
+        }
+
+        if ($request->filled('id')) {
+            $idString = $request->id;
+            $idString = trim($idString, '[]');
+            $ids = explode(',', $idString);
+            $ids = array_map('trim', $ids);
+            // Filter out '0' values if any (optional, but good practice)
+            $ids = array_filter($ids, function ($id) {
+                return $id !== '0' && $id !== 0;
+            });
+            if (!empty($ids)) {
+                $query->whereIn('id', $ids);
+            } else {
+                // If all ids are 0, return empty
+                return response()->json([]);
+            }
+        }
+
+        if ($request->filled('project_id')) {
+            $query->where('project_id', $request->project_id);
+        }
+
+        if ($request->filled('institute')) {
+            $query->whereHas('institute', function ($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->institute . '%');
+            });
+        }
+
+        if ($request->filled('department')) {
+            $query->whereHas('department', function ($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->department . '%');
+            });
+        }
+
+        if ($request->filled('profession')) {
+            $query->whereHas('profession', function ($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->profession . '%');
+            });
+        }
+
+        if ($request->filled('payment_status')) {
+            $query->whereHas('paymentProcess', function ($q) use ($request) {
+                $q->where('payment_status', 'like', '%' . $request->payment_status . '%');
+            });
+        }
+
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $query->whereBetween('process_date', [$request->start_date, $request->end_date]);
+        } elseif ($request->filled('start_date') || $request->filled('end_date')) {
+            $query->where('process_date', [$request->filled('start_date') ? $request->start_date : $request->end_date]);
+        }
+
+        if ($request->filled('type_of_work')) {
+            $query->where('type_of_work', 'like', '%' . $request->type_of_work . '%');
+        }
+
+        if ($request->filled('process_status')) {
+            $query->where('process_status', 'like', '%' . $request->process_status . '%');
+        }
+
+        $projectList = $query->get();
+
+        $employees = DB::connection('mysql_medics_hrms')
+            ->table('employee_details')
+            ->where('status', '1')
+            ->get()
+            ->keyBy('id');
+
+        $userhrms = DB::connection('mysql_medics_hrms')
+            ->table('employee_details')
+            ->where('position', '7')
+            ->where('status', '1')
+            ->get();
+
+        $userIds = $userhrms->pluck('id');
+
+        $salary = DB::connection('mysql_medics_hrms')
+            ->table('salary_information')
+            ->whereIn('employee_id', $userIds)
+            ->get();
+
+        $attentance = DB::connection('mysql_medics_hrms')
+            ->table('emp_attendances')
+            ->whereIn('emp_id', $userIds)
+            ->where('reason', 'Login')
+            ->get();
+
+        // Process each project item
+        $projectList = $projectList->map(function ($item) use ($employees) {
+            // Format writer data
+            $writerData = collect($item->writerData)->map(function ($data) use ($employees) {
+                $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
+                return [
+                    'name' => $employeeName,
+                    'status' => $data->status,
+                ];
+            })->toArray();
+
+            // Format reviewer data
+            $reviewerData = collect($item->reviewerData)->map(function ($data) use ($employees) {
+                $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
+                return [
+                    'name' => $employeeName,
+                    'status' => $data->status,
+                ];
+            })->toArray();
+
+            // Format statistician data
+            $statisticanData = collect($item->statisticanData)->map(function ($data) use ($employees) {
+                $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
+                return [
+                    'name' => $employeeName,
+                    'status' => $data->status,
+                ];
+            })->toArray();
+
+            // Format journal data
+            $journalData = collect($item->journalData)->map(function ($data) {
+                return [
+                    'name' => $data->assign_user,
+                    'status' => $data->status,
+                ];
+            })->toArray();
+
+            // Get payment details
+            $paymentDetails = $item->paymentProcess;
+
+            // Get the base model data as array
+            $itemArray = $item->toArray();
+
+            // Add the formatted data
+            $itemArray['writer_data'] = $writerData;
+            $itemArray['reviewer_data'] = $reviewerData;
+            $itemArray['statistican_data'] = $statisticanData;
+            $itemArray['journal_data'] = $journalData;
+            $itemArray['payment_details'] = $paymentDetails;
+
+            // Calculate fees by type with created_date
+            $groupedPayments = collect($item->employeePaymentDetails)
+                ->groupBy('type')
+                ->mapWithKeys(function ($group, $type) {
+                    $total = $group->sum(function ($g) {
+                        return (float) $g->payment;
+                    });
+
+                    // Get all created dates
+                    $createdDates = $group->pluck('created_date')->filter()->unique()->values()->toArray();
+
+                    // Only return if total > 0
+                    if ($total > 0) {
+                        return [
+                            $type . '_fee' => $total,
+                            $type . '_fee_created_date' => $createdDates
+                        ];
+                    }
+
+                    // Return empty array for fees with 0 total (will be filtered out)
+                    return [];
+                })
+                ->filter() // Remove empty entries
+                ->toArray();
+
+            // Merge the fee keys into the main array
+            $itemArray = array_merge($itemArray, $groupedPayments);
+
+            // Remove the original relationship data to avoid duplication
+            unset(
+                $itemArray['writerData'],
+                $itemArray['reviewerData'],
+                $itemArray['statisticanData'],
+                $itemArray['journalData'],
+                $itemArray['paymentProcess'],
+                $itemArray['employeePaymentDetails']
+            );
+
+            return $itemArray;
         });
+
+        return response()->json($projectList);
     }
-
-    if ($request->filled('department')) {
-        $query->whereHas('department', function ($q) use ($request) {
-            $q->where('name', 'like', '%' . $request->department . '%');
-        });
-    }
-
-    if ($request->filled('profession')) {
-        $query->whereHas('profession', function ($q) use ($request) {
-            $q->where('name', 'like', '%' . $request->profession . '%');
-        });
-    }
-
-    if ($request->filled('payment_status')) {
-        $query->whereHas('paymentProcess', function ($q) use ($request) {
-            $q->where('payment_status', 'like', '%' . $request->payment_status . '%');
-        });
-    }
-
-    if ($request->filled('start_date') && $request->filled('end_date')) {
-        $query->whereBetween('process_date', [$request->start_date, $request->end_date]);
-    } elseif ($request->filled('start_date') || $request->filled('end_date')) {
-        $query->where('process_date', [$request->filled('start_date') ? $request->start_date : $request->end_date]);
-    }
-
-    if ($request->filled('type_of_work')) {
-        $query->where('type_of_work', 'like', '%' . $request->type_of_work . '%');
-    }
-
-    if ($request->filled('process_status')) {
-        $query->where('process_status', 'like', '%' . $request->process_status . '%');
-    }
-
-    $projectList = $query->get();
-
-    $employees = DB::connection('mysql_medics_hrms')
-        ->table('employee_details')
-        ->where('status', '1')
-        ->get()
-        ->keyBy('id');
-
-    $userhrms = DB::connection('mysql_medics_hrms')
-        ->table('employee_details')
-        ->where('position', '7')
-        ->where('status', '1')
-        ->get();
-
-    $userIds = $userhrms->pluck('id');
-
-    $salary = DB::connection('mysql_medics_hrms')
-        ->table('salary_information')
-        ->whereIn('employee_id', $userIds)
-        ->get();
-
-    $attentance = DB::connection('mysql_medics_hrms')
-        ->table('emp_attendances')
-        ->whereIn('emp_id', $userIds)
-        ->where('reason', 'Login')
-        ->get();
-
-    // Process each project item
-    $projectList = $projectList->map(function ($item) use ($employees) {
-        // Format writer data
-        $writerData = collect($item->writerData)->map(function ($data) use ($employees) {
-            $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-            return [
-                'name' => $employeeName,
-                'status' => $data->status,
-            ];
-        })->toArray();
-
-        // Format reviewer data
-        $reviewerData = collect($item->reviewerData)->map(function ($data) use ($employees) {
-            $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-            return [
-                'name' => $employeeName,
-                'status' => $data->status,
-            ];
-        })->toArray();
-
-        // Format statistician data
-        $statisticanData = collect($item->statisticanData)->map(function ($data) use ($employees) {
-            $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-            return [
-                'name' => $employeeName,
-                'status' => $data->status,
-            ];
-        })->toArray();
-
-        // Format journal data
-        $journalData = collect($item->journalData)->map(function ($data) {
-            return [
-                'name' => $data->assign_user,
-                'status' => $data->status,
-            ];
-        })->toArray();
-
-        // Get payment details
-        $paymentDetails = $item->paymentProcess;
-
-        // Get the base model data as array
-        $itemArray = $item->toArray();
-
-        // Add the formatted data
-        $itemArray['writer_data'] = $writerData;
-        $itemArray['reviewer_data'] = $reviewerData;
-        $itemArray['statistican_data'] = $statisticanData;
-        $itemArray['journal_data'] = $journalData;
-        $itemArray['payment_details'] = $paymentDetails;
-
-        // Calculate fees by type with created_date
-        $groupedPayments = collect($item->employeePaymentDetails)
-            ->groupBy('type')
-            ->mapWithKeys(function ($group, $type) {
-                $total = $group->sum(function ($g) {
-                    return (float) $g->payment;
-                });
-
-                // Get all created dates
-                $createdDates = $group->pluck('created_date')->filter()->unique()->values()->toArray();
-
-                // Only return if total > 0
-                if ($total > 0) {
-                    return [
-                        $type . '_fee' => $total,
-                        $type . '_fee_created_date' => $createdDates
-                    ];
-                }
-
-                // Return empty array for fees with 0 total (will be filtered out)
-                return [];
-            })
-            ->filter() // Remove empty entries
-            ->toArray();
-
-        // Merge the fee keys into the main array
-        $itemArray = array_merge($itemArray, $groupedPayments);
-
-        // Remove the original relationship data to avoid duplication
-        unset(
-            $itemArray['writerData'],
-            $itemArray['reviewerData'],
-            $itemArray['statisticanData'],
-            $itemArray['journalData'],
-            $itemArray['paymentProcess'],
-            $itemArray['employeePaymentDetails']
-        );
-
-        return $itemArray;
-    });
-
-    return response()->json($projectList);
-}
 
 
     public function projectPending(Request $request)
@@ -2356,179 +1972,7 @@ class ReportsController extends Controller
         return response()->json($finalResponse);
     }
 
-    //employee performance report getting the ongoing to completed status time for each project_id based on assign_user
-    // public function getEmployeePerformanceReport(Request $request)
-    // {
-    //     $query = ProjectLogs::with([
-    //         'entryProcess:id,client_name,project_id',
-    //         'userData:id,employee_name',
-    //         'entryProcess.writerData',
-    //         'entryProcess.reviewerData',
-    //         'entryProcess.statisticanData',
-    //         'entryProcess.journalData',
-    //     ])
-    //         ->select('id', 'project_id', 'employee_id', 'status', 'status_type', 'created_at', 'updated_at');
 
-    //     if ($request->filled('employee_id')) {
-    //         $query->where('employee_id', $request->employee_id);
-    //     }
-
-    //     $logs = $query->orderBy('created_at')->get();
-    //     $performanceData = [];
-    //     $groupedLogs = $logs->groupBy('employee_id');
-
-    //     foreach ($groupedLogs as $employeeId => $employeeLogs) {
-    //         $employeePerformance = [
-    //             'employee_id' => $employeeId,
-    //             'employee_name' => $employeeLogs->first()->userData->employee_name ?? 'Unknown',
-    //             'project_data' => [],
-    //         ];
-
-    //         $writerLogs = $employeeLogs->where('status_type', 'writer')->where('status', 'on_going')->values();
-    //         $writerCompletedLogs = $employeeLogs->where('status_type', 'writer')->where('status', 'completed')
-    //         ->orderBy('created_at', 'asc')
-    //         ->first();
-    //         $reviewerLogs = $employeeLogs->where('status_type', 'reviewer')->values();
-
-    //         // Process writer logs
-    //         foreach ($writerLogs as $index => $log) {
-    //             if ($log->status == 'completed') {
-    //                 $previousLog = $writerLogs->get($index - 1);
-
-    //                 if ($previousLog) {
-    //                     $startTime = Carbon::parse($previousLog->created_date);
-    //                     $endTime = Carbon::parse($log->created_date);
-    //                     $duration = $startTime->diffInSeconds($endTime);
-    //                     $projectId = $log->entryProcess->project_id ?? null;
-
-    //                     if (! isset($employeePerformance['project_data'][$projectId])) {
-    //                         $employeePerformance['project_data'][$projectId] = [
-    //                             'project_id' => $projectId,
-    //                             'writer' => [
-    //                                 'normal' => [],
-    //                                 'corrections' => [],
-    //                                 'plag_corrections' => [],
-    //                                 'corrections_count' => 0,
-    //                                 'plag_corrections_count' => 0,
-    //                                 'total_duration' => 0,
-    //                             ],
-    //                             'reviewer' => [
-    //                                 'normal' => [],
-    //                                 'corrections' => [],
-    //                                 'plag_corrections' => [],
-    //                                 'corrections_count' => 0,
-    //                                 'plag_corrections_count' => 0,
-    //                                 'total_duration' => 0,
-    //                             ],
-    //                             'total_duration' => 0,
-    //                         ];
-    //                     }
-
-    //                     if ($previousLog->status == 'correction') {
-    //                         $employeePerformance['project_data'][$projectId]['writer']['corrections'][] = [
-    //                             'start_time' => $startTime->toDateTimeString(),
-    //                             'end_time' => $endTime->toDateTimeString(),
-    //                             'duration' => $this->formatSecondsToUnits($duration),
-    //                         ];
-    //                         $employeePerformance['project_data'][$projectId]['writer']['corrections_count']++;
-    //                     } elseif ($previousLog->status == 'plag_correction') {
-    //                         $employeePerformance['project_data'][$projectId]['writer']['plag_corrections'][] = [
-    //                             'start_time' => $startTime->toDateTimeString(),
-    //                             'end_time' => $endTime->toDateTimeString(),
-    //                             'duration' => $this->formatSecondsToUnits($duration),
-    //                         ];
-    //                         $employeePerformance['project_data'][$projectId]['writer']['plag_corrections_count']++;
-    //                     } elseif ($previousLog->status == 'on_going') {
-    //                         $employeePerformance['project_data'][$projectId]['writer']['normal'][] = [
-    //                             'start_time' => $startTime->toDateTimeString(),
-    //                             'end_time' => $endTime->toDateTimeString(),
-    //                             'duration' => $this->formatSecondsToUnits($duration),
-    //                         ];
-    //                     }
-
-    //                     $employeePerformance['project_data'][$projectId]['writer']['total_duration'] += $duration;
-    //                     $employeePerformance['project_data'][$projectId]['total_duration'] += $duration;
-    //                 }
-    //             }
-    //         }
-
-    //         // Process reviewer logs
-    //         foreach ($reviewerLogs as $index => $log) {
-    //             if ($log->status == 'completed') {
-    //                 $previousLog = $reviewerLogs->get($index - 1);
-
-    //                 if ($previousLog) {
-    //                     $startTime = Carbon::parse($previousLog->created_at);
-    //                     $endTime = Carbon::parse($log->created_at);
-    //                     $duration = $startTime->diffInSeconds($endTime);
-    //                     $projectId = $log->entryProcess->project_id ?? null;
-
-    //                     if (! isset($employeePerformance['project_data'][$projectId])) {
-    //                         $employeePerformance['project_data'][$projectId] = [
-    //                             'project_id' => $projectId,
-    //                             'writer' => [
-    //                                 'normal' => [],
-    //                                 'corrections' => [],
-    //                                 'plag_corrections' => [],
-    //                                 'corrections_count' => 0,
-    //                                 'plag_corrections_count' => 0,
-    //                                 'total_duration' => 0,
-    //                             ],
-    //                             'reviewer' => [
-    //                                 'normal' => [],
-    //                                 'corrections' => [],
-    //                                 'plag_corrections' => [],
-    //                                 'corrections_count' => 0,
-    //                                 'plag_corrections_count' => 0,
-    //                                 'total_duration' => 0,
-    //                             ],
-    //                             'total_duration' => 0,
-    //                         ];
-    //                     }
-
-    //                     if ($previousLog->status == 'correction') {
-    //                         $employeePerformance['project_data'][$projectId]['reviewer']['corrections'][] = [
-    //                             'start_time' => $startTime->toDateTimeString(),
-    //                             'end_time' => $endTime->toDateTimeString(),
-    //                             'duration' => $this->formatSecondsToUnits($duration),
-    //                         ];
-    //                         $employeePerformance['project_data'][$projectId]['reviewer']['corrections_count']++;
-    //                     } elseif ($previousLog->status == 'plag_correction') {
-    //                         $employeePerformance['project_data'][$projectId]['reviewer']['plag_corrections'][] = [
-    //                             'start_time' => $startTime->toDateTimeString(),
-    //                             'end_time' => $endTime->toDateTimeString(),
-    //                             'duration' => $this->formatSecondsToUnits($duration),
-    //                         ];
-    //                         $employeePerformance['project_data'][$projectId]['reviewer']['plag_corrections_count']++;
-    //                     } elseif ($previousLog->status == 'on_going') {
-    //                         $employeePerformance['project_data'][$projectId]['reviewer']['normal'][] = [
-    //                             'start_time' => $startTime->toDateTimeString(),
-    //                             'end_time' => $endTime->toDateTimeString(),
-    //                             'duration' => $this->formatSecondsToUnits($duration),
-    //                         ];
-    //                     }
-
-    //                     $employeePerformance['project_data'][$projectId]['reviewer']['total_duration'] += $duration;
-    //                     $employeePerformance['project_data'][$projectId]['total_duration'] += $duration;
-    //                 }
-    //             }
-    //         }
-    //         if (strlen($employeeId) > 0) {
-    //             foreach ($employeePerformance['project_data'] as $projectId => $projectData) {
-    //                 $performanceData[] = [
-    //                     'employee_id' => $employeeId,
-    //                     'employee_name' => $employeePerformance['employee_name'],
-    //                     'project_ids' => [$projectId],
-    //                     'writer' => $projectData['writer'],
-    //                     'reviewer' => $projectData['reviewer'],
-    //                     'total_duration' => $this->formatDuration($projectData['total_duration']),
-    //                 ];
-    //             }
-    //         }
-    //     }
-
-    //     return response()->json($performanceData);
-    // }
 
     public function formatSecondsToUnits($seconds, $precision = 2)
     {
