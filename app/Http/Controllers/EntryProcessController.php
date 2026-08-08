@@ -7722,7 +7722,7 @@ class EntryProcessController extends Controller
         })
         ->whereDate('entry_date', '>=', $fromDate)
         ->whereDate('entry_date', '<=', $toDate)
-        ->where('process_status', '!=', 'completed')
+        ->whereNotIn('process_status', ['completed', 'withdrawal'])
         ->where('is_deleted', 0)
         ->get();
 
@@ -9497,7 +9497,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             )
             ->where('projectduration', '<', $currentDate)
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             ->whereYear('entry_date', $currentYear)
             ->orderBy('id', 'desc')
             ->get();
@@ -10311,7 +10311,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
         )
             ->where('projectduration', '<', $currentDate)
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             // ->whereYear('entry_date', $currentYear)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
@@ -13313,7 +13313,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             ->where('is_deleted', 0)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
-            ->whereNotIn('process_status', ['completed', 'withdrawal']);
+            ->whereNotIn('process_status', ['completed']);
 
         // Add dynamic whereHas filters
         $query->where(function ($q) use ($positions, $createdBy) {
@@ -13872,7 +13872,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                     )
                         ->where('projectduration', '<', $currentDate)
                         ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
+                        ->whereNotIn('process_status', ['completed','withdrawal'])
                         // ->whereYear('entry_date', $currentYear)
                         ->whereDate('entry_date', '>=', $fromDate)
                         ->whereDate('entry_date', '<=', $toDate)

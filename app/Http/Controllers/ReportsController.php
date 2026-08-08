@@ -1132,203 +1132,217 @@ class ReportsController extends Controller
         return response()->json($data);
     }
 
-    public function projectList(Request $request)
-    {
-        $fromDate = $request->query('from_date');
-        $toDate = $request->query('to_date');
+  public function projectList(Request $request)
+{
+    $fromDate = $request->query('from_date');
+    $toDate = $request->query('to_date');
 
-        $query = EntryProcessModel::with([
-            'institute:id,name',
-            'department:id,name',
-            'profession:id,name',
-            'writerData',
-            'reviewerData',
-            'statisticanData',
-            'journalData',
-            'paymentProcess',
-            'employeePaymentDetails',
-        ])
-            ->select('id', 'project_id', 'department', 'institute', 'client_name', 'profession', 'title', 'type_of_work', 'process_status', 'process_date', 'budget')
-            ->where('is_deleted', 0);
-
-        if ($fromDate) {
-            $query->whereDate('entry_date', '>=', $fromDate);
-        }
-
-        if ($toDate) {
-            $query->whereDate('entry_date', '<=', $toDate);
-        }
-
-        if ($request->filled('id')) {
-            $idString = $request->id;
-            $idString = trim($idString, '[]');
-            $ids = explode(',', $idString);
-            $ids = array_map('trim', $ids);
-            $query->whereIn('id', $ids);
-        }
-
-        if ($request->filled('project_id')) {
-            $query->where('project_id', $request->project_id);
-        }
-
-        if ($request->filled('institute')) {
-            $query->whereHas('institute', function ($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->institute . '%');
-            });
-        }
-
-        if ($request->filled('department')) {
-            $query->whereHas('department', function ($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->department . '%');
-            });
-        }
-
-        if ($request->filled('profession')) {
-            $query->whereHas('profession', function ($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->profession . '%');
-            });
-        }
-
-        if ($request->filled('payment_status')) {
-            $query->whereHas('paymentProcess', function ($q) use ($request) {
-                $q->where('payment_status', 'like', '%' . $request->payment_status . '%');
-            });
-        }
-
-        if ($request->filled('start_date') && $request->filled('end_date')) {
-            $query->whereBetween('process_date', [$request->start_date, $request->end_date]);
-        } elseif ($request->filled('start_date') || $request->filled('end_date')) {
-            $query->where('process_date', [$request->filled('start_date') ? $request->start_date : $request->end_date]);
-        }
-
-        if ($request->filled('type_of_work')) {
-            $query->where('type_of_work', 'like', '%' . $request->type_of_work . '%');
-        }
-
-        if ($request->filled('process_status')) {
-            $query->where('process_status', 'like', '%' . $request->process_status . '%');
-        }
-
-        $projectList = $query->get();
-
-        $employees = DB::connection('mysql_medics_hrms')
-            ->table('employee_details')
-            ->where('status', '1')
-            ->get()
-            ->keyBy('id');
-
-        $userhrms = DB::connection('mysql_medics_hrms')
-            ->table('employee_details')
-            ->where('position', '7')
-            ->where('status', '1')
-            ->get();
-
-        $userIds = $userhrms->pluck('id');
-
-        $salary = DB::connection('mysql_medics_hrms')
-            ->table('salary_information')
-            ->whereIn('employee_id', $userIds)
-            ->get();
-
-        $attentance = DB::connection('mysql_medics_hrms')
-            ->table('emp_attendances')
-            ->whereIn('emp_id', $userIds)
-            ->where('reason', 'Login')
-            ->get();
-
-        // Process each project item
-        $projectList = $projectList->map(function ($item) use ($employees) {
-            // Format writer data
-            $writerData = collect($item->writerData)->map(function ($data) use ($employees) {
-                $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-                return [
-                    'name' => $employeeName,
-                    'status' => $data->status,
-                ];
-            })->toArray();
-
-            // Format reviewer data
-            $reviewerData = collect($item->reviewerData)->map(function ($data) use ($employees) {
-                $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-                return [
-                    'name' => $employeeName,
-                    'status' => $data->status,
-                ];
-            })->toArray();
-
-            // Format statistician data
-            $statisticanData = collect($item->statisticanData)->map(function ($data) use ($employees) {
-                $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-                return [
-                    'name' => $employeeName,
-                    'status' => $data->status,
-                ];
-            })->toArray();
-
-            // Format journal data
-            $journalData = collect($item->journalData)->map(function ($data) {
-                return [
-                    'name' => $data->assign_user,
-                    'status' => $data->status,
-                ];
-            })->toArray();
-
-            // Get payment details
-            $paymentDetails = $item->paymentProcess;
-
-            // Get the base model data as array
-            $itemArray = $item->toArray();
-
-            // Add the formatted data
-            $itemArray['writer_data'] = $writerData;
-            $itemArray['reviewer_data'] = $reviewerData;
-            $itemArray['statistican_data'] = $statisticanData;
-            $itemArray['journal_data'] = $journalData;
-            $itemArray['payment_details'] = $paymentDetails;
-
-            // Calculate fees by type with created_date
-            $groupedPayments = collect($item->employeePaymentDetails)
-                ->groupBy('type')
-                ->mapWithKeys(function ($group, $type) {
-                    $total = $group->sum(function ($g) {
-                        return (float) $g->payment;
-                    });
-
-                    // Get all created dates
-                    $createdDates = $group->pluck('created_date')->filter()->unique()->values()->toArray();
-
-                    // Only return if total > 0
-                    if ($total > 0) {
-                        return [
-                            $type . '_fee' => $total,
-                            $type . '_fee_created_date' => $createdDates
-                        ];
-                    }
-
-                    // Return empty array for fees with 0 total (will be filtered out)
-                    return [];
-                })
-                ->filter() // Remove empty entries
-                ->toArray();
-
-            // Merge the fee keys into the main array
-            $itemArray = array_merge($itemArray, $groupedPayments);
-
-            // Remove the original relationship data to avoid duplication
-            unset(
-                $itemArray['writerData'],
-                $itemArray['reviewerData'],
-                $itemArray['statisticanData'],
-                $itemArray['journalData'],
-                $itemArray['paymentProcess'],
-                $itemArray['employeePaymentDetails']
-            );
-
-            return $itemArray;
-        });
-
-        return response()->json($projectList);
+    // Check if id is '0' and return empty response immediately
+    if ($request->filled('id') && $request->id === '0') {
+        return response()->json([]);
     }
+
+    $query = EntryProcessModel::with([
+        'institute:id,name',
+        'department:id,name',
+        'profession:id,name',
+        'writerData',
+        'reviewerData',
+        'statisticanData',
+        'journalData',
+        'paymentProcess',
+        'employeePaymentDetails',
+    ])
+        ->select('id', 'project_id', 'department', 'institute', 'client_name', 'profession', 'title', 'type_of_work', 'process_status', 'process_date', 'budget')
+        ->where('is_deleted', 0);
+
+    if ($fromDate) {
+        $query->whereDate('entry_date', '>=', $fromDate);
+    }
+
+    if ($toDate) {
+        $query->whereDate('entry_date', '<=', $toDate);
+    }
+
+    if ($request->filled('id')) {
+        $idString = $request->id;
+        $idString = trim($idString, '[]');
+        $ids = explode(',', $idString);
+        $ids = array_map('trim', $ids);
+        // Filter out '0' values if any (optional, but good practice)
+        $ids = array_filter($ids, function($id) {
+            return $id !== '0' && $id !== 0;
+        });
+        if (!empty($ids)) {
+            $query->whereIn('id', $ids);
+        } else {
+            // If all ids are 0, return empty
+            return response()->json([]);
+        }
+    }
+
+    if ($request->filled('project_id')) {
+        $query->where('project_id', $request->project_id);
+    }
+
+    if ($request->filled('institute')) {
+        $query->whereHas('institute', function ($q) use ($request) {
+            $q->where('name', 'like', '%' . $request->institute . '%');
+        });
+    }
+
+    if ($request->filled('department')) {
+        $query->whereHas('department', function ($q) use ($request) {
+            $q->where('name', 'like', '%' . $request->department . '%');
+        });
+    }
+
+    if ($request->filled('profession')) {
+        $query->whereHas('profession', function ($q) use ($request) {
+            $q->where('name', 'like', '%' . $request->profession . '%');
+        });
+    }
+
+    if ($request->filled('payment_status')) {
+        $query->whereHas('paymentProcess', function ($q) use ($request) {
+            $q->where('payment_status', 'like', '%' . $request->payment_status . '%');
+        });
+    }
+
+    if ($request->filled('start_date') && $request->filled('end_date')) {
+        $query->whereBetween('process_date', [$request->start_date, $request->end_date]);
+    } elseif ($request->filled('start_date') || $request->filled('end_date')) {
+        $query->where('process_date', [$request->filled('start_date') ? $request->start_date : $request->end_date]);
+    }
+
+    if ($request->filled('type_of_work')) {
+        $query->where('type_of_work', 'like', '%' . $request->type_of_work . '%');
+    }
+
+    if ($request->filled('process_status')) {
+        $query->where('process_status', 'like', '%' . $request->process_status . '%');
+    }
+
+    $projectList = $query->get();
+
+    $employees = DB::connection('mysql_medics_hrms')
+        ->table('employee_details')
+        ->where('status', '1')
+        ->get()
+        ->keyBy('id');
+
+    $userhrms = DB::connection('mysql_medics_hrms')
+        ->table('employee_details')
+        ->where('position', '7')
+        ->where('status', '1')
+        ->get();
+
+    $userIds = $userhrms->pluck('id');
+
+    $salary = DB::connection('mysql_medics_hrms')
+        ->table('salary_information')
+        ->whereIn('employee_id', $userIds)
+        ->get();
+
+    $attentance = DB::connection('mysql_medics_hrms')
+        ->table('emp_attendances')
+        ->whereIn('emp_id', $userIds)
+        ->where('reason', 'Login')
+        ->get();
+
+    // Process each project item
+    $projectList = $projectList->map(function ($item) use ($employees) {
+        // Format writer data
+        $writerData = collect($item->writerData)->map(function ($data) use ($employees) {
+            $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
+            return [
+                'name' => $employeeName,
+                'status' => $data->status,
+            ];
+        })->toArray();
+
+        // Format reviewer data
+        $reviewerData = collect($item->reviewerData)->map(function ($data) use ($employees) {
+            $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
+            return [
+                'name' => $employeeName,
+                'status' => $data->status,
+            ];
+        })->toArray();
+
+        // Format statistician data
+        $statisticanData = collect($item->statisticanData)->map(function ($data) use ($employees) {
+            $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
+            return [
+                'name' => $employeeName,
+                'status' => $data->status,
+            ];
+        })->toArray();
+
+        // Format journal data
+        $journalData = collect($item->journalData)->map(function ($data) {
+            return [
+                'name' => $data->assign_user,
+                'status' => $data->status,
+            ];
+        })->toArray();
+
+        // Get payment details
+        $paymentDetails = $item->paymentProcess;
+
+        // Get the base model data as array
+        $itemArray = $item->toArray();
+
+        // Add the formatted data
+        $itemArray['writer_data'] = $writerData;
+        $itemArray['reviewer_data'] = $reviewerData;
+        $itemArray['statistican_data'] = $statisticanData;
+        $itemArray['journal_data'] = $journalData;
+        $itemArray['payment_details'] = $paymentDetails;
+
+        // Calculate fees by type with created_date
+        $groupedPayments = collect($item->employeePaymentDetails)
+            ->groupBy('type')
+            ->mapWithKeys(function ($group, $type) {
+                $total = $group->sum(function ($g) {
+                    return (float) $g->payment;
+                });
+
+                // Get all created dates
+                $createdDates = $group->pluck('created_date')->filter()->unique()->values()->toArray();
+
+                // Only return if total > 0
+                if ($total > 0) {
+                    return [
+                        $type . '_fee' => $total,
+                        $type . '_fee_created_date' => $createdDates
+                    ];
+                }
+
+                // Return empty array for fees with 0 total (will be filtered out)
+                return [];
+            })
+            ->filter() // Remove empty entries
+            ->toArray();
+
+        // Merge the fee keys into the main array
+        $itemArray = array_merge($itemArray, $groupedPayments);
+
+        // Remove the original relationship data to avoid duplication
+        unset(
+            $itemArray['writerData'],
+            $itemArray['reviewerData'],
+            $itemArray['statisticanData'],
+            $itemArray['journalData'],
+            $itemArray['paymentProcess'],
+            $itemArray['employeePaymentDetails']
+        );
+
+        return $itemArray;
+    });
+
+    return response()->json($projectList);
+}
 
 
     public function projectPending(Request $request)

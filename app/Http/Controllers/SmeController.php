@@ -17,6 +17,10 @@ class SmeController extends Controller
         $entries = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')
             ->where('is_deleted', 0)
             ->get();
+        $entriesNotCompleted = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')
+            ->where('is_deleted', 0)
+            ->where('process_status', '!=', 'completed')
+            ->get();
 
         $totalproject = $entries->count();
         $projectids = $entries->pluck('id')->toArray();
@@ -85,7 +89,7 @@ class SmeController extends Controller
                 DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration"),
             );
         }])
-            ->whereIn('project_id', $entries->pluck('id')->toArray())
+            ->whereIn('project_id', $entriesNotCompleted->pluck('id')->toArray())
             ->where('type', 'publication_manager')
             ->where('review', 'quickReview')
             ->select('id', 'status', 'project_id', 'assign_user', 'assign_date', 'type', 'comments', 'type_of_article', 'review')
