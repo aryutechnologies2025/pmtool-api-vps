@@ -7677,7 +7677,7 @@ class EntryProcessController extends Controller
     //     ]);
     // }
 
-    public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
+   public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
 {
     // Initialize dates
     if (!$fromDate) {
@@ -8149,7 +8149,7 @@ class EntryProcessController extends Controller
             $projPositions = isset($empposition) ? explode(',', $empposition) : [];
             $statusType = $project->type;
 
-            $statusDateTime = new \DateTime($project->projectDuration);
+            $statusDateTime = new \DateTime($project->project_duration);
             $completedDateTime = new \DateTime($project->updated_at);
             $interval = $statusDateTime->diff($completedDateTime);
             $daysDifference = $interval->days + 1;
@@ -8469,7 +8469,7 @@ class EntryProcessController extends Controller
             $projPositions = isset($empposition) ? explode(',', $empposition) : [];
             $statusType = $project->type;
 
-            $statusDateTime = new \DateTime($project->projectDuration);
+            $statusDateTime = new \DateTime($project->project_duration);
             $completedDateTime = new \DateTime($project->updated_at);
             $interval = $statusDateTime->diff($completedDateTime);
             $daysDifference = $interval->days + 1;
@@ -8803,7 +8803,7 @@ class EntryProcessController extends Controller
             $projPositions = isset($empposition) ? explode(',', $empposition) : [];
             $statusType = $project->type;
 
-            $statusDateTime = new \DateTime($project->projectDuration);
+            $statusDateTime = new \DateTime($project->project_duration);
             $completedDateTime = new \DateTime($project->updated_at);
             $interval = $statusDateTime->diff($completedDateTime);
             $daysDifference = $interval->days + 1;
@@ -13236,7 +13236,7 @@ class EntryProcessController extends Controller
         ]);
     }
 
-    private function bucketCompletionDays(int $daysDifference): string
+   private function bucketCompletionDays(int $daysDifference): string
 {
     if ($daysDifference <= 4) {
         return '4';
@@ -13246,7 +13246,7 @@ class EntryProcessController extends Controller
     return 'more8';
 }
 
- public function getEmpProjectList(Request $request)
+public function getEmpProjectList(Request $request)
 {
     $type = $request->input('type');
     $createdBy = $request->input('createdby');
@@ -13425,26 +13425,23 @@ class EntryProcessController extends Controller
             }
         }
 
-        $projectstatus = ProjectLogs::with('entryProcess')
-            ->where('project_id', $projectid)
-            ->where('status', '!=', 'completed')
-            ->where('employee_id', $empid)
-            ->whereHas('entryProcess', function ($q) use ($fromDate, $toDate) {
-                $q->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate)
-                    ->where('is_deleted', 0);
-            })
-            ->latest()
-            ->first();
-
-        if ($projectstatus) {
-            $statusDateTime = new \DateTime($projectstatus->assigned_date);
-            $completedDateTime = new \DateTime($projectstatus->created_date);
-            $interval = $statusDateTime->diff($completedDateTime);
+        // FIX (bug 2): previously pulled the latest ProjectLogs row for the
+        // requesting user ($createdBy), which has no connection to the
+        // writer/reviewer/statistician assignment actually shown in this
+        // response (writer_data / reviewer_data / statistican_data). That
+        // produced numbers that couldn't be reconciled against the rest of
+        // the payload. Now reuses $assignList — the same per-employee
+        // assignment record already fetched above for writer_pending_days /
+        // reviewer_pending_days / statistican_pending_days — so the
+        // completion bucket is consistent with those figures.
+        // NOTE: only bucketed once the assignment is actually completed,
+        // since "completed in N days" is meaningless for an open task.
+        if ($assignList && $assignList->status === 'completed' && $assignList->assign_date) {
+            $assignedDate = new \DateTime($assignList->assign_date);
+            $completedDateTime = new \DateTime($assignList->updated_at);
+            $interval = $assignedDate->diff($completedDateTime);
             $daysDifference = $interval->days + 1;
 
-            // FIX: use shared bucketing helper instead of ad-hoc if/elseif
-            // so boundaries match the rest of the codebase.
             switch ($this->bucketCompletionDays($daysDifference)) {
                 case '4':
                     $project->completedIn4Days = '<4 days';
