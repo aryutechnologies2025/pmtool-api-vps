@@ -7746,29 +7746,80 @@ class EntryProcessController extends Controller
 
         // Filter EntryProcessData by role
         // Filter EntryProcessData by role
+// $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
+//     switch ($emp_pos) {
+//         case 7:
+//             // Check if writerData exists and is not empty, then check assign_user
+//             return $item->writerData && 
+//                    ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection ? 
+//                         $item->writerData->contains('assign_user', $emp_id) : 
+//                         $item->writerData->assign_user == $emp_id);
+//         case 8:
+//             return $item->reviewerData && 
+//                    ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection ? 
+//                         $item->reviewerData->contains('assign_user', $emp_id) : 
+//                         $item->reviewerData->assign_user == $emp_id);
+//         case 10:
+//             return $item->journalData && 
+//                    ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection ? 
+//                         $item->journalData->contains('assign_user', $emp_id) : 
+//                         $item->journalData->assign_user == $emp_id);
+//         case 11:
+//             return $item->statisticanData && 
+//                    ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection ? 
+//                         $item->statisticanData->contains('assign_user', $emp_id) : 
+//                         $item->statisticanData->assign_user == $emp_id);
+//         default:
+//             return false;
+//     }
+// });
+
 $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
     switch ($emp_pos) {
         case 7:
-            // Check if writerData exists and is not empty, then check assign_user
-            return $item->writerData && 
-                   ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->writerData->contains('assign_user', $emp_id) : 
-                        $item->writerData->assign_user == $emp_id);
+            if (!$item->writerData) {
+                return false;
+            }
+            
+            if ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                return $item->writerData->contains('assign_user', $emp_id);
+            }
+            
+            return $item->writerData->assign_user == $emp_id;
+            
         case 8:
-            return $item->reviewerData && 
-                   ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->reviewerData->contains('assign_user', $emp_id) : 
-                        $item->reviewerData->assign_user == $emp_id);
+            if (!$item->reviewerData) {
+                return false;
+            }
+            
+            if ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                return $item->reviewerData->contains('assign_user', $emp_id);
+            }
+            
+            return $item->reviewerData->assign_user == $emp_id;
+            
         case 10:
-            return $item->journalData && 
-                   ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->journalData->contains('assign_user', $emp_id) : 
-                        $item->journalData->assign_user == $emp_id);
+            if (!$item->journalData) {
+                return false;
+            }
+            
+            if ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection) {
+                return $item->journalData->contains('assign_user', $emp_id);
+            }
+            
+            return $item->journalData->assign_user == $emp_id;
+            
         case 11:
-            return $item->statisticanData && 
-                   ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->statisticanData->contains('assign_user', $emp_id) : 
-                        $item->statisticanData->assign_user == $emp_id);
+            if (!$item->statisticanData) {
+                return false;
+            }
+            
+            if ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection) {
+                return $item->statisticanData->contains('assign_user', $emp_id);
+            }
+            
+            return $item->statisticanData->assign_user == $emp_id;
+            
         default:
             return false;
     }
