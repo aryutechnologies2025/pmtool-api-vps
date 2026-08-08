@@ -7677,7 +7677,7 @@ class EntryProcessController extends Controller
     //     ]);
     // }
 
-  public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
+public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
 {
     // Initialize dates
     if (!$fromDate) {
@@ -8135,7 +8135,16 @@ class EntryProcessController extends Controller
             })
             ->orderBy('id', 'desc')
             ->get()
-            ->unique('project_id')
+            // FIX: was ->unique('project_id') only, which collapses a
+            // pending writer row and a pending reviewer row on the SAME
+            // project down to just one of them (whichever sorts first),
+            // silently dropping the other role's row before it can be
+            // bucketed by day below. Dedupe by project_id + type together
+            // instead, since a single project can legitimately have this
+            // employee pending on it in more than one role at once.
+            ->unique(function ($item) {
+                return $item->project_id . '_' . $item->type;
+            })
             ->values();
 
         $positionWiseCompletion = [];
@@ -8455,7 +8464,16 @@ class EntryProcessController extends Controller
             })
             ->orderBy('id', 'desc')
             ->get()
-            ->unique('project_id')
+            // FIX: was ->unique('project_id') only, which collapses a
+            // pending writer row and a pending reviewer row on the SAME
+            // project down to just one of them (whichever sorts first),
+            // silently dropping the other role's row before it can be
+            // bucketed by day below. Dedupe by project_id + type together
+            // instead, since a single project can legitimately have this
+            // employee pending on it in more than one role at once.
+            ->unique(function ($item) {
+                return $item->project_id . '_' . $item->type;
+            })
             ->values();
 
         $positionWiseCompletion = [];
@@ -8789,7 +8807,16 @@ class EntryProcessController extends Controller
             })
             ->orderBy('id', 'desc')
             ->get()
-            ->unique('project_id')
+            // FIX: was ->unique('project_id') only, which collapses a
+            // pending writer row and a pending reviewer row on the SAME
+            // project down to just one of them (whichever sorts first),
+            // silently dropping the other role's row before it can be
+            // bucketed by day below. Dedupe by project_id + type together
+            // instead, since a single project can legitimately have this
+            // employee pending on it in more than one role at once.
+            ->unique(function ($item) {
+                return $item->project_id . '_' . $item->type;
+            })
             ->values();
 
         $positionWiseCompletion = [];
@@ -13236,7 +13263,7 @@ class EntryProcessController extends Controller
         ]);
     }
 
-   private function bucketCompletionDays(int $daysDifference): string
+private function bucketCompletionDays(int $daysDifference): string
 {
     if ($daysDifference <= 4) {
         return '4';
