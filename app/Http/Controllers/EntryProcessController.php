@@ -8156,7 +8156,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             ->whereIn('project_id', $writerDataId)
             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('process_status', '!=', 'completed')
+                $query->whereNotIn('process_status', ['completed','withdrawal'])
                     ->where('is_deleted', 0)
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
@@ -8476,7 +8476,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             ->whereIn('project_id', $writerDataId)
             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('process_status', '!=', 'completed')
+                $query->whereNotIn('process_status', ['completed','withdrawal'])
                     ->where('is_deleted', 0)
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
@@ -8806,7 +8806,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->where('type_of_work', 'thesis')
-                    ->where('process_status', '!=', 'completed')
+                    ->whereNotIn('process_status', ['completed', 'withdrawal'])
                     ->where('is_deleted', 0)
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
