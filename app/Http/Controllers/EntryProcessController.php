@@ -7746,33 +7746,6 @@ class EntryProcessController extends Controller
 
         // Filter EntryProcessData by role
         // Filter EntryProcessData by role
-// $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
-//     switch ($emp_pos) {
-//         case 7:
-//             // Check if writerData exists and is not empty, then check assign_user
-//             return $item->writerData && 
-//                    ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection ? 
-//                         $item->writerData->contains('assign_user', $emp_id) : 
-//                         $item->writerData->assign_user == $emp_id);
-//         case 8:
-//             return $item->reviewerData && 
-//                    ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection ? 
-//                         $item->reviewerData->contains('assign_user', $emp_id) : 
-//                         $item->reviewerData->assign_user == $emp_id);
-//         case 10:
-//             return $item->journalData && 
-//                    ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection ? 
-//                         $item->journalData->contains('assign_user', $emp_id) : 
-//                         $item->journalData->assign_user == $emp_id);
-//         case 11:
-//             return $item->statisticanData && 
-//                    ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection ? 
-//                         $item->statisticanData->contains('assign_user', $emp_id) : 
-//                         $item->statisticanData->assign_user == $emp_id);
-//         default:
-//             return false;
-//     }
-// });
 
 $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
     switch ($emp_pos) {
@@ -7825,22 +7798,7 @@ $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp
     }
 });
 
-        // Calculate counts
-        // $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->writerData && $item->writerData->assign_user == $emp_id;
-        // })->count();
-        
-        // $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->reviewerData && $item->reviewerData->assign_user == $emp_id;
-        // })->count();
-        
-        // $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->journalData && $item->journalData->assign_user == $emp_id;
-        // })->count();
-        
-        // $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->statisticanData && $item->statisticanData->assign_user == $emp_id;
-        // })->count();
+     
 
         $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
     if (!$item->writerData) {
@@ -13259,239 +13217,229 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
         ]);
     }
 
-    public function getEmpProjectList(Request $request)
-    {
-        $type = $request->input('type');
-        $createdBy = $request->input('createdby');
-        $typeOfWork = $request->input('type_of_work');
-        $start_date = $request->query('start_date');
-        $end_date = $request->query('end_date');
-        $fromDate = $request->query('from_date');
-        $toDate = $request->query('to_date');
+  public function getEmpProjectList(Request $request)
+{
+    $type = $request->input('type');
+    $createdBy = $request->input('createdby');
+    $typeOfWork = $request->input('type_of_work');
+    $start_date = $request->query('start_date');
+    $end_date = $request->query('end_date');
+    $fromDate = $request->query('from_date');
+    $toDate = $request->query('to_date');
 
-        $positions = explode(',', $type);
-        $types = [];
+    $positions = explode(',', $type);
+    $types = [];
+    $relations = [];
 
+    if (in_array('7', $positions)) {
+        $types[] = 'writer';
+        $relations[] = 'writerData';
+    }
+    if (in_array('8', $positions)) {
+        $types[] = 'reviewer';
+        $relations[] = 'reviewerData';
+    }
+    if (in_array('11', $positions)) {
+        $types[] = 'statistican';
+        $relations[] = 'statisticanData';
+    }
+
+    // Build the base query
+    $baseQuery = EntryProcessModel::with([
+        'institute',
+        'department',
+        'profession',
+        'paymentProcess',
+        'employeePaymentDetails' => function ($query) use ($types) {
+            $query->whereIn('type', $types);
+        },
+    ])
+    ->select(
+        'id',
+        'project_id',
+        'title',
+        'type_of_work',
+        'process_status',
+        'hierarchy_level',
+        'institute',
+        'department',
+        'profession',
+        'client_name',
+        'entry_date',
+        'projectduration',
+        DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration")
+    )
+    ->where('is_deleted', 0)
+    ->whereDate('entry_date', '>=', $fromDate)
+    ->whereDate('entry_date', '<=', $toDate)
+    ->whereNotIn('process_status', ['completed', 'withdrawal']);
+
+    // Add dynamic whereHas filters
+    $baseQuery->where(function ($q) use ($positions, $createdBy) {
         if (in_array('7', $positions)) {
-            $types[] = 'writer';
-            $relations[] = 'writerData';
+            $q->orWhereHas('writerData', function ($subQuery) use ($createdBy) {
+                $subQuery->where('assign_user', $createdBy)
+                    ->where('status', '!=', 'completed');
+            });
         }
+
         if (in_array('8', $positions)) {
-            $types[] = 'reviewer';
-            $relations[] = 'reviewerData';
+            $q->orWhereHas('reviewerData', function ($subQuery) use ($createdBy) {
+                $subQuery->where('assign_user', $createdBy)
+                    ->where('status', '!=', 'completed');
+            });
         }
+
         if (in_array('11', $positions)) {
-            $types[] = 'statistican';
-            $relations[] = 'statisticanData';
+            $q->orWhereHas('statisticanData', function ($subQuery) use ($createdBy) {
+                $subQuery->where('assign_user', $createdBy)
+                    ->where('status', '!=', 'completed');
+            });
         }
+    });
 
-        // Now build the query
-        $query = EntryProcessModel::with([
-            'institute',
-            'department',
-            'profession',
-            'paymentProcess',
-            'employeePaymentDetails' => function ($query) use ($types) {
-                $query->whereIn('type', $types);
-            },
-        ])
-            ->select(
-                'id',
-                'project_id',
-                'title',
-                'type_of_work',
-                'process_status',
-                'hierarchy_level',
-                'institute',
-                'department',
-                'profession',
-                'client_name',
-                'entry_date',
-                'projectduration',
-                DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration")
-            )
-            ->where('is_deleted', 0)
-            ->whereDate('entry_date', '>=', $fromDate)
-            ->whereDate('entry_date', '<=', $toDate)
-            ->whereNotIn('process_status', ['completed', 'withdrawal']);
+    // Add type_of_work filter
+    if (!empty($typeOfWork) && $typeOfWork !== 'all') {
+        $baseQuery->where('type_of_work', $typeOfWork);
+    }
 
-        // Add dynamic whereHas filters
-        $query->where(function ($q) use ($positions, $createdBy) {
-            if (in_array('7', $positions)) {
-                $q->orWhereHas('writerData', function ($subQuery) use ($createdBy) {
-                    $subQuery->where('assign_user', $createdBy)
-                        ->where('status', '!=', 'completed');
-                });
-            }
+    // Add date range filter if provided
+    if (!empty($start_date) && !empty($end_date)) {
+        $baseQuery->whereBetween('entry_date', [$start_date, $end_date]);
+    }
 
-            if (in_array('8', $positions)) {
-                $q->orWhereHas('reviewerData', function ($subQuery) use ($createdBy) {
-                    $subQuery->where('assign_user', $createdBy)
-                        ->where('status', '!=', 'completed');
-                });
-            }
+    // Add relation eager loading only if needed
+    if (!empty($relations)) {
+        $baseQuery->with($relations);
+    }
 
-            if (in_array('11', $positions)) {
-                $q->orWhereHas('statisticanData', function ($subQuery) use ($createdBy) {
-                    $subQuery->where('assign_user', $createdBy)
-                        ->where('status', '!=', 'completed');
-                });
-            }
-        });
+    // Get count BEFORE executing the query for data
+    $projectsCount = $baseQuery->count();
 
-        // Add relation eager loading only if needed
-        if (! empty($relations)) {
-            $query->with($relations);
-        }
+    // Now get the data
+    $projects = $baseQuery->get();
 
-        if (! empty($typeOfWork) && $typeOfWork !== 'all') {
-            $query->where('type_of_work', $typeOfWork);
-        }
-
-        if (! empty($start_date) && ! empty($end_date)) {
-            $query->whereBetween('entry_date', [$start_date, $end_date]);
-        }
-
-        if (! empty($relations)) {
-            $query->with($relations);
-        }
-
-        $projects = $query->get();
-
-        if ($projects->isEmpty()) {
-            return response()->json([
-                'details' => [],
-                'typeofwork' => [],
-                'projectsCount' => 0,
-                'projectpendingcount' => 0,
-                'projectemergencycount' => 0,
-            ]);
-        }
-
-        $projectsCount = $query->count();
-        $projectpendingcount = 0;
-        $projectemergencycount = 0;
-
-        foreach ($projects as $project) {
-            $projectid = $project->id;
-            $empid = $createdBy;
-
-            if ($project->process_status !== 'completed') {
-                $projectpendingcount++;
-            }
-
-            if ($project->hierarchy_level === 'urgent_important') {
-                $projectemergencycount++;
-            }
-
-            // Initialize the properties with default values
-            $project->completedIn4Days = '-';
-            $project->completedIn5To8Days = '-';
-            $project->completedInMoreThan8Days = '-';
-
-            $assignList = ProjectAssignDetails::with('projectData')->where('project_id', $projectid)
-                ->where('assign_user', $empid)
-                ->whereHas('projectData', function ($q) use ($fromDate, $toDate) {
-                    $q->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->first();
-
-            if ($assignList) {
-                // Check if the current user is assigned as writer, reviewer, or statistician
-                if (in_array('7', $positions) || $assignList->assign_user === $createdBy) {
-                    if ($project->writer_status === 'completed') {
-                        $project->writer_pending_days = 0;
-                    } else {
-                        // Writer pending days calculation
-                        $assignedDate = Carbon::parse($project->assign_date);
-                        $projectDurationDate = Carbon::parse($project->project_duration);
-                        $pendingDays = $assignedDate->diffInDays($projectDurationDate);
-
-                        $project->writer_pending_days = $pendingDays;
-                    }
-                }
-
-                if (in_array('8', $positions) || $assignList->assign_user === $createdBy) {
-                    // $project->reviewer_pending_days = ($assignList->status === 'completed') ? 0
-                    //     : Carbon::parse($assignList->assign_date)->diffInDays(Carbon::parse($assignList->project_duration));
-
-                    if ($assignList->status === 'completed') {
-                        $project->reviewer_pending_days = 0;
-                    } else {
-                        $assignedDate = Carbon::parse($assignList->assign_date);
-
-                        $projectDurationDate = Carbon::parse($assignList->project_duration);
-
-                        $pendingDays = $assignedDate->diffInDays($projectDurationDate);
-                        $project->reviewer_pending_days = $pendingDays;
-                    }
-                }
-
-                if (in_array('11', $positions) || $assignList->assign_user === $createdBy) {
-                    // $project->statistican_pending_days = ($assignList->status === 'completed') ? 0
-                    //     : Carbon::parse($assignList->assign_date)->diffInDays(Carbon::parse($assignList->project_duration));
-                    if ($assignList->status === 'completed') {
-                        $project->statistican_pending_days = 0;
-                    } else {
-                        $assignedDate = Carbon::parse($assignList->assign_date);
-
-                        $projectDurationDate = Carbon::parse($assignList->project_duration);
-
-                        $pendingDays = $assignedDate->diffInDays($projectDurationDate);
-                        $project->statistican_pending_days = $pendingDays;
-                    }
-                }
-            }
-
-            $projectstatus = ProjectLogs::with('entryProcess')->where('project_id', $projectid)
-                ->where('status', '!=', 'completed')
-                ->where('employee_id', $empid)
-                ->whereHas('entryProcess', function ($q) use ($fromDate, $toDate) {
-                    $q->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->latest()
-                ->first();
-
-            // If a project log is found, calculate the date differences
-            if ($projectstatus) {
-                $statusDateTime = new \DateTime($projectstatus->assigned_date);
-                $completedDateTime = new \DateTime($projectstatus->created_date);
-                $interval = $statusDateTime->diff($completedDateTime);
-
-                // Get the days difference, excluding the start date
-                $daysDifference = $interval->days + 1;
-
-                // Categorize based on days difference
-                if ($daysDifference <= 4) {
-                    $project->completedIn4Days = '<4 days';
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $project->completedIn5To8Days = '5 to 8 days';
-                } elseif ($daysDifference >= 9) {
-                    $project->completedInMoreThan8Days = '>9 days';
-                }
-            }
-        }
-
-        // Fetch distinct types of work
-        $typeOfWorkOptions = EntryProcessModel::where('is_deleted', 0)
-            ->select('type_of_work')
-            ->whereDate('entry_date', '>=', $fromDate)
-            ->whereDate('entry_date', '<=', $toDate)
-            ->groupBy('type_of_work')
-            ->get();
-
-        // Return the response
+    if ($projects->isEmpty()) {
         return response()->json([
-            'details' => $projects,
-            'typeofwork' => $typeOfWorkOptions,
-            'projectsCount' => $projectsCount,
-            'projectpendingcount' => $projectpendingcount,
-            'projectemergencycount' => $projectemergencycount,
-
+            'details' => [],
+            'typeofwork' => [],
+            'projectsCount' => 0,
+            'projectpendingcount' => 0,
+            'projectemergencycount' => 0,
         ]);
     }
+
+    // Initialize counters
+    $projectpendingcount = 0;
+    $projectemergencycount = 0;
+
+    foreach ($projects as $project) {
+        $projectid = $project->id;
+        $empid = $createdBy;
+
+        if ($project->process_status !== 'completed') {
+            $projectpendingcount++;
+        }
+
+        if ($project->hierarchy_level === 'urgent_important') {
+            $projectemergencycount++;
+        }
+
+        // Initialize the properties with default values
+        $project->completedIn4Days = '-';
+        $project->completedIn5To8Days = '-';
+        $project->completedInMoreThan8Days = '-';
+
+        $assignList = ProjectAssignDetails::with('projectData')
+            ->where('project_id', $projectid)
+            ->where('assign_user', $empid)
+            ->whereHas('projectData', function ($q) use ($fromDate, $toDate) {
+                $q->whereDate('entry_date', '>=', $fromDate)
+                    ->whereDate('entry_date', '<=', $toDate)
+                    ->where('is_deleted', 0);
+            })
+            ->first();
+
+        if ($assignList) {
+            // Check if the current user is assigned as writer, reviewer, or statistician
+            if (in_array('7', $positions) || $assignList->assign_user === $createdBy) {
+                if ($project->writer_status === 'completed') {
+                    $project->writer_pending_days = 0;
+                } else {
+                    $assignedDate = Carbon::parse($project->assign_date);
+                    $projectDurationDate = Carbon::parse($project->project_duration);
+                    $pendingDays = $assignedDate->diffInDays($projectDurationDate);
+                    $project->writer_pending_days = $pendingDays;
+                }
+            }
+
+            if (in_array('8', $positions) || $assignList->assign_user === $createdBy) {
+                if ($assignList->status === 'completed') {
+                    $project->reviewer_pending_days = 0;
+                } else {
+                    $assignedDate = Carbon::parse($assignList->assign_date);
+                    $projectDurationDate = Carbon::parse($assignList->project_duration);
+                    $pendingDays = $assignedDate->diffInDays($projectDurationDate);
+                    $project->reviewer_pending_days = $pendingDays;
+                }
+            }
+
+            if (in_array('11', $positions) || $assignList->assign_user === $createdBy) {
+                if ($assignList->status === 'completed') {
+                    $project->statistican_pending_days = 0;
+                } else {
+                    $assignedDate = Carbon::parse($assignList->assign_date);
+                    $projectDurationDate = Carbon::parse($assignList->project_duration);
+                    $pendingDays = $assignedDate->diffInDays($projectDurationDate);
+                    $project->statistican_pending_days = $pendingDays;
+                }
+            }
+        }
+
+        $projectstatus = ProjectLogs::with('entryProcess')
+            ->where('project_id', $projectid)
+            ->where('status', '!=', 'completed')
+            ->where('employee_id', $empid)
+            ->whereHas('entryProcess', function ($q) use ($fromDate, $toDate) {
+                $q->whereDate('entry_date', '>=', $fromDate)
+                    ->whereDate('entry_date', '<=', $toDate)
+                    ->where('is_deleted', 0);
+            })
+            ->latest()
+            ->first();
+
+        if ($projectstatus) {
+            $statusDateTime = new \DateTime($projectstatus->assigned_date);
+            $completedDateTime = new \DateTime($projectstatus->created_date);
+            $interval = $statusDateTime->diff($completedDateTime);
+            $daysDifference = $interval->days + 1;
+
+            if ($daysDifference <= 4) {
+                $project->completedIn4Days = '<4 days';
+            } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
+                $project->completedIn5To8Days = '5 to 8 days';
+            } elseif ($daysDifference >= 9) {
+                $project->completedInMoreThan8Days = '>9 days';
+            }
+        }
+    }
+
+    // Fetch distinct types of work
+    $typeOfWorkOptions = EntryProcessModel::where('is_deleted', 0)
+        ->select('type_of_work')
+        ->whereDate('entry_date', '>=', $fromDate)
+        ->whereDate('entry_date', '<=', $toDate)
+        ->groupBy('type_of_work')
+        ->get();
+
+    return response()->json([
+        'details' => $projects,
+        'typeofwork' => $typeOfWorkOptions,
+        'projectsCount' => $projectsCount,
+        'projectpendingcount' => $projectpendingcount,
+        'projectemergencycount' => $projectemergencycount,
+    ]);
+}
 
     public function calculatePendingDays($project, $createdBy)
     {
