@@ -7686,7 +7686,7 @@ class EntryProcessController extends Controller
     if (!$toDate) {
         $toDate = date('Y-m-d');
     }
-    
+
     // Helper function to get unique project IDs
     $getUniqueProjectIds = function($query) {
         return $query->get()
@@ -7695,7 +7695,7 @@ class EntryProcessController extends Controller
             ->unique()
             ->values();
     };
-    
+
     // People wise response data
     $totalProjects = People::select('id', 'employee_name', 'position')->with(['createdByUser'])
         ->where('position', '!=', 'Admin')
@@ -7708,7 +7708,7 @@ class EntryProcessController extends Controller
         ->select('id', 'writer', 'reviewer', 'journal', 'statistican')
         ->where(function ($query) use ($totalProjects) {
             $employeeIds = $totalProjects->pluck('id')->toArray();
-            
+
             $query->whereHas('writerData', function ($q) use ($employeeIds) {
                 $q->where('status', '!=', 'completed')
                     ->whereIn('assign_user', $employeeIds);
@@ -7745,108 +7745,104 @@ class EntryProcessController extends Controller
         $completedIn4Days = $completedIn5To8Days = $completedInMoreThan8Days = 0;
 
         // Filter EntryProcessData by role
-        // Filter EntryProcessData by role
+        $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
+            switch ($emp_pos) {
+                case 7:
+                    if (!$item->writerData) {
+                        return false;
+                    }
 
-$filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
-    switch ($emp_pos) {
-        case 7:
+                    if ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                        return $item->writerData->contains('assign_user', $emp_id);
+                    }
+
+                    return $item->writerData->assign_user == $emp_id;
+
+                case 8:
+                    if (!$item->reviewerData) {
+                        return false;
+                    }
+
+                    if ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                        return $item->reviewerData->contains('assign_user', $emp_id);
+                    }
+
+                    return $item->reviewerData->assign_user == $emp_id;
+
+                case 10:
+                    if (!$item->journalData) {
+                        return false;
+                    }
+
+                    if ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection) {
+                        return $item->journalData->contains('assign_user', $emp_id);
+                    }
+
+                    return $item->journalData->assign_user == $emp_id;
+
+                case 11:
+                    if (!$item->statisticanData) {
+                        return false;
+                    }
+
+                    if ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection) {
+                        return $item->statisticanData->contains('assign_user', $emp_id);
+                    }
+
+                    return $item->statisticanData->assign_user == $emp_id;
+
+                default:
+                    return false;
+            }
+        });
+
+        $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
             if (!$item->writerData) {
                 return false;
             }
-            
+
             if ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection) {
                 return $item->writerData->contains('assign_user', $emp_id);
             }
-            
+
             return $item->writerData->assign_user == $emp_id;
-            
-        case 8:
+        })->count();
+
+        $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
             if (!$item->reviewerData) {
                 return false;
             }
-            
+
             if ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection) {
                 return $item->reviewerData->contains('assign_user', $emp_id);
             }
-            
+
             return $item->reviewerData->assign_user == $emp_id;
-            
-        case 10:
+        })->count();
+
+        $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
             if (!$item->journalData) {
                 return false;
             }
-            
+
             if ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection) {
                 return $item->journalData->contains('assign_user', $emp_id);
             }
-            
+
             return $item->journalData->assign_user == $emp_id;
-            
-        case 11:
+        })->count();
+
+        $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
             if (!$item->statisticanData) {
                 return false;
             }
-            
+
             if ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection) {
                 return $item->statisticanData->contains('assign_user', $emp_id);
             }
-            
+
             return $item->statisticanData->assign_user == $emp_id;
-            
-        default:
-            return false;
-    }
-});
-
-     
-
-        $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    if (!$item->writerData) {
-        return false;
-    }
-    
-    if ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection) {
-        return $item->writerData->contains('assign_user', $emp_id);
-    }
-    
-    return $item->writerData->assign_user == $emp_id;
-})->count();
-
-$entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    if (!$item->reviewerData) {
-        return false;
-    }
-    
-    if ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection) {
-        return $item->reviewerData->contains('assign_user', $emp_id);
-    }
-    
-    return $item->reviewerData->assign_user == $emp_id;
-})->count();
-
-$entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    if (!$item->journalData) {
-        return false;
-    }
-    
-    if ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection) {
-        return $item->journalData->contains('assign_user', $emp_id);
-    }
-    
-    return $item->journalData->assign_user == $emp_id;
-})->count();
-
-$entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    if (!$item->statisticanData) {
-        return false;
-    }
-    
-    if ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection) {
-        return $item->statisticanData->contains('assign_user', $emp_id);
-    }
-    
-    return $item->statisticanData->assign_user == $emp_id;
-})->count();
+        })->count();
 
         // Pending counts (same as above for now)
         $entry->writerPendingCount = $entry->writer_count;
@@ -7860,14 +7856,25 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
         // Loop through the projects to calculate the date differences
         foreach ($projectlist as $project) {
             $statusDate = Carbon::parse($project->status_date);
-            $daysDifference = $statusDate->diffInDays($statusDate);
 
-            if ($daysDifference < 4) {
-                $completedIn4Days++;
-            } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                $completedIn5To8Days++;
-            } elseif ($daysDifference > 8) {
-                $completedInMoreThan8Days++;
+            // FIX: previously diffed $statusDate against itself, which is
+            // always 0 and made every project fall into the "<4 days"
+            // bucket. Now diffs against the log's updated_at timestamp.
+            // >>> Replace `updated_at` below with the correct "completed on"
+            // >>> column for ProjectLogs if one exists (e.g. completed_at).
+            $completedDate = Carbon::parse($project->updated_at);
+            $daysDifference = $statusDate->diffInDays($completedDate);
+
+            switch ($this->bucketCompletionDays($daysDifference)) {
+                case '4':
+                    $completedIn4Days++;
+                    break;
+                case '5to8':
+                    $completedIn5To8Days++;
+                    break;
+                case 'more8':
+                    $completedInMoreThan8Days++;
+                    break;
             }
         }
 
@@ -7907,7 +7914,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             ->unique()
             ->values()
             ->toArray();
-            
+
         // Process position-wise counts
         if (in_array('7', $positions)) {
             $writerAssignment = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
@@ -7926,7 +7933,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
 
             $entry->writer_project_ids = $writerAssignment;
             $writerCount = $writerAssignment->count();
-            
+
             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -7940,7 +7947,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->where('type', 'writer')
                 ->count();
-                
+
             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -7951,7 +7958,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'writer')
                 ->count();
-                
+
             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -7962,7 +7969,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 ->where('status', 'need_support')
                 ->where('type', 'writer')
                 ->count();
-                
+
             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -7992,7 +7999,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
 
             $entry->reviewer_project_ids = $reviewerAssignments;
             $reviewerCount = $reviewerAssignments->count();
-            
+
             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8006,7 +8013,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->where('type', 'reviewer')
                 ->count();
-                
+
             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8017,7 +8024,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'reviewer')
                 ->count();
-                
+
             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8028,7 +8035,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 ->where('status', 'need_support')
                 ->where('type', 'reviewer')
                 ->count();
-                
+
             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8055,10 +8062,10 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 ->filter()
                 ->unique()
                 ->values();
-                
+
             $entry->statistican_project_ids = $statisticanAssignment;
             $statisticanCount = $statisticanAssignment->count();
-            
+
             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8072,7 +8079,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->where('type', 'statistican')
                 ->count();
-                
+
             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8083,7 +8090,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'statistican')
                 ->count();
-                
+
             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8094,14 +8101,14 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 ->whereIn('status', ['correction', 'plag_correction'])
                 ->where('type', 'statistican')
                 ->count();
-                
+
             $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
                         ->whereDate('entry_date', '<=', $toDate);
-                        
+
                 })
                 ->where('status', 'need_support')
                 ->where('type', 'statistican')
@@ -8118,7 +8125,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                     ->where('is_deleted', 0)
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
-                  
+
             })
             ->where(function ($query) {
                 $query->whereDoesntHave('employee_rejected')
@@ -8162,12 +8169,16 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                     ];
                 }
 
-                if ($daysDifference < 4) {
-                    $positionWiseCompletion[$position]['completed_in_4_days']++;
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-                } else {
-                    $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                switch ($this->bucketCompletionDays($daysDifference)) {
+                    case '4':
+                        $positionWiseCompletion[$position]['completed_in_4_days']++;
+                        break;
+                    case '5to8':
+                        $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
+                        break;
+                    case 'more8':
+                        $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                        break;
                 }
             }
         }
@@ -8252,7 +8263,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
 
             $entry->writer_project_ids = $writerAssignment;
             $writerCount = $writerAssignment->count();
-            
+
             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'writer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8267,7 +8278,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->count();
-                
+
             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'writer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8279,7 +8290,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->count();
-                
+
             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'writer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8291,7 +8302,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->where('status', 'need_support')
                 ->count();
-                
+
             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'writer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8322,7 +8333,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
 
             $entry->reviewer_project_ids = $reviewerAssignment;
             $reviewerCount = $reviewerAssignment->count();
-            
+
             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'reviewer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8336,7 +8347,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->count();
-                
+
             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'reviewer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8347,7 +8358,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->count();
-                
+
             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'reviewer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8358,7 +8369,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->where('status', 'need_support')
                 ->count();
-                
+
             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('type', 'reviewer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
@@ -8387,7 +8398,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
 
             $entry->statistican_project_ids = $statisticanAssignment;
             $statisticanCount = $statisticanAssignment->count();
-            
+
             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8400,7 +8411,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->count();
-                
+
             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8410,7 +8421,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                 })
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->count();
-                
+
             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('process_status', '!=', 'completed')
@@ -8446,7 +8457,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             ->get()
             ->unique('project_id')
             ->values();
-            
+
         $positionWiseCompletion = [];
         $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
         $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
@@ -8477,13 +8488,17 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         'completed_in_more_than_8_days' => 0,
                     ];
                 }
-                
-                if ($daysDifference < 4) {
-                    $positionWiseCompletion[$position]['completed_in_4_days']++;
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-                } else {
-                    $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+
+                switch ($this->bucketCompletionDays($daysDifference)) {
+                    case '4':
+                        $positionWiseCompletion[$position]['completed_in_4_days']++;
+                        break;
+                    case '5to8':
+                        $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
+                        break;
+                    case 'more8':
+                        $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                        break;
                 }
             }
         }
@@ -8536,7 +8551,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
         $emp_pos = $entry->position;
         $emp_id = $entry->id;
         $positions = explode(',', $emp_pos);
-        
+
         $writerCount = $reviewerCount = $statisticanCount = 0;
         $writerPendingCount = $reviewerPendingCount = $statisticanPendingCount = 0;
         $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
@@ -8574,7 +8589,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
 
             $entry->writer_project_ids = $writerAssignment;
             $writerCount = $writerAssignment->count();
-            
+
             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->where('type', 'writer')
@@ -8586,7 +8601,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->count();
-                
+
             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'writer')
@@ -8598,7 +8613,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->where('process_status', '!=', 'completed');
                 })
                 ->count();
-                
+
             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('status', 'need_support')
                 ->where('type', 'writer')
@@ -8610,7 +8625,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->count();
-                
+
             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['correction', 'plag_correction'])
                 ->where('type', 'writer')
@@ -8653,7 +8668,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->count();
-                
+
             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'reviewer')
@@ -8665,7 +8680,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->count();
-                
+
             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('status', 'need_support')
                 ->where('type', 'reviewer')
@@ -8677,7 +8692,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->count();
-                
+
             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['correction', 'plag_correction'])
                 ->where('type', 'reviewer')
@@ -8708,7 +8723,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
 
             $entry->statistican_project_ids = $statisticanAssignment;
             $statisticanCount = $statisticanAssignment->count();
-            
+
             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
                 ->where('type', 'statistican')
@@ -8720,7 +8735,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->count();
-                
+
             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereIn('status', ['on_going', 'to_do'])
                 ->where('type', 'statistican')
@@ -8732,7 +8747,7 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                         ->whereDate('entry_date', '<=', $toDate);
                 })
                 ->count();
-                
+
             $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->where('status', 'need_support')
                 ->where('type', 'statistican')
@@ -8808,12 +8823,16 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
                     ];
                 }
 
-                if ($daysDifference < 4) {
-                    $positionWiseCompletion[$position]['completed_in_4_days']++;
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-                } else {
-                    $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                switch ($this->bucketCompletionDays($daysDifference)) {
+                    case '4':
+                        $positionWiseCompletion[$position]['completed_in_4_days']++;
+                        break;
+                    case '5to8':
+                        $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
+                        break;
+                    case 'more8':
+                        $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                        break;
                 }
             }
         }
@@ -13217,7 +13236,17 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
         ]);
     }
 
-  public function getEmpProjectList(Request $request)
+    private function bucketCompletionDays(int $daysDifference): string
+{
+    if ($daysDifference <= 4) {
+        return '4';
+    } elseif ($daysDifference <= 8) {
+        return '5to8';
+    }
+    return 'more8';
+}
+
+ public function getEmpProjectList(Request $request)
 {
     $type = $request->input('type');
     $createdBy = $request->input('createdby');
@@ -13414,12 +13443,18 @@ $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_
             $interval = $statusDateTime->diff($completedDateTime);
             $daysDifference = $interval->days + 1;
 
-            if ($daysDifference <= 4) {
-                $project->completedIn4Days = '<4 days';
-            } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                $project->completedIn5To8Days = '5 to 8 days';
-            } elseif ($daysDifference >= 9) {
-                $project->completedInMoreThan8Days = '>9 days';
+            // FIX: use shared bucketing helper instead of ad-hoc if/elseif
+            // so boundaries match the rest of the codebase.
+            switch ($this->bucketCompletionDays($daysDifference)) {
+                case '4':
+                    $project->completedIn4Days = '<4 days';
+                    break;
+                case '5to8':
+                    $project->completedIn5To8Days = '5 to 8 days';
+                    break;
+                case 'more8':
+                    $project->completedInMoreThan8Days = '>9 days';
+                    break;
             }
         }
     }
