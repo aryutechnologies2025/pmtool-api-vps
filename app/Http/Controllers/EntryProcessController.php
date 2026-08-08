@@ -7677,7 +7677,7 @@ class EntryProcessController extends Controller
     //     ]);
     // }
 
-   public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
+  public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
 {
     // Initialize dates
     if (!$fromDate) {
@@ -13425,21 +13425,31 @@ public function getEmpProjectList(Request $request)
             }
         }
 
-        // FIX (bug 2): previously pulled the latest ProjectLogs row for the
-        // requesting user ($createdBy), which has no connection to the
-        // writer/reviewer/statistician assignment actually shown in this
-        // response (writer_data / reviewer_data / statistican_data). That
-        // produced numbers that couldn't be reconciled against the rest of
-        // the payload. Now reuses $assignList — the same per-employee
-        // assignment record already fetched above for writer_pending_days /
-        // reviewer_pending_days / statistican_pending_days — so the
-        // completion bucket is consistent with those figures.
-        // NOTE: only bucketed once the assignment is actually completed,
-        // since "completed in N days" is meaningless for an open task.
-        if ($assignList && $assignList->status === 'completed' && $assignList->assign_date) {
+        // FIX (bug 2, revised): the base query above only ever returns
+        // projects where $createdBy's OWN writer/reviewer/statistician
+        // status is NOT 'completed' (see the whereHas filters near the top
+        // of this method). That means a check like
+        // `$assignList->status === 'completed'` can never be true here —
+        // it would make this block permanently dead code, which is exactly
+        // why every row was coming back as "-".
+        //
+        // Since this endpoint is inherently a list of this employee's
+        // PENDING items, and the payload already has elapsed-day counters
+        // for that purpose (writer_pending_days / reviewer_pending_days /
+        // statistican_pending_days, computed the same way), these three
+        // fields now report the same kind of thing bucketed into ranges:
+        // how many days has this task been sitting with the employee since
+        // it was assigned (assign_date -> today).
+        //
+        // >>> If completedIn4Days/5To8/MoreThan8 are meant to represent
+        // >>> something else (e.g. only ever populate for roles that HAVE
+        // >>> completed, sourced from a different table), tell me and I'll
+        // >>> change this — but as written, the field can only ever be
+        // >>> meaningful as an aging/SLA indicator in this endpoint.
+        if ($assignList && $assignList->assign_date) {
             $assignedDate = new \DateTime($assignList->assign_date);
-            $completedDateTime = new \DateTime($assignList->updated_at);
-            $interval = $assignedDate->diff($completedDateTime);
+            $today = new \DateTime();
+            $interval = $assignedDate->diff($today);
             $daysDifference = $interval->days + 1;
 
             switch ($this->bucketCompletionDays($daysDifference)) {
