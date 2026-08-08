@@ -1136,6 +1136,7 @@ class ReportsController extends Controller
     {
         $fromDate = $request->query('from_date');
         $toDate = $request->query('to_date');
+
         $query = EntryProcessModel::with([
             'institute:id,name',
             'department:id,name',
@@ -1147,9 +1148,9 @@ class ReportsController extends Controller
             'paymentProcess',
             'employeePaymentDetails',
         ])
-            // ->where('process_status', '!=', 'completed')
             ->select('id', 'project_id', 'department', 'institute', 'client_name', 'profession', 'title', 'type_of_work', 'process_status', 'process_date', 'budget')
             ->where('is_deleted', 0);
+
         if ($fromDate) {
             $query->whereDate('entry_date', '>=', $fromDate);
         }
@@ -1157,16 +1158,11 @@ class ReportsController extends Controller
         if ($toDate) {
             $query->whereDate('entry_date', '<=', $toDate);
         }
-        // if ($request->filled('id')) {
-        //     $ids = explode(',', $request->id);
-        //     $query->whereIn('id', $ids);
-        // }
+
         if ($request->filled('id')) {
             $idString = $request->id;
-            // Remove brackets if present
             $idString = trim($idString, '[]');
             $ids = explode(',', $idString);
-            // Trim whitespace from each ID
             $ids = array_map('trim', $ids);
             $query->whereIn('id', $ids);
         }
@@ -1214,6 +1210,7 @@ class ReportsController extends Controller
         }
 
         $projectList = $query->get();
+
         $employees = DB::connection('mysql_medics_hrms')
             ->table('employee_details')
             ->where('status', '1')
@@ -1239,43 +1236,57 @@ class ReportsController extends Controller
             ->where('reason', 'Login')
             ->get();
 
+        // Process each project item
         $projectList = $projectList->map(function ($item) use ($employees) {
-            $item->writer_data = collect($item->writerData)->map(function ($data) use ($employees) {
+            // Format writer data
+            $writerData = collect($item->writerData)->map(function ($data) use ($employees) {
                 $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-
                 return [
                     'name' => $employeeName,
                     'status' => $data->status,
                 ];
             })->toArray();
 
-            $item->reviewer_data = collect($item->reviewerData)->map(function ($data) use ($employees) {
+            // Format reviewer data
+            $reviewerData = collect($item->reviewerData)->map(function ($data) use ($employees) {
                 $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-
                 return [
                     'name' => $employeeName,
                     'status' => $data->status,
                 ];
             })->toArray();
 
-            $item->statistican_data = collect($item->statisticanData)->map(function ($data) use ($employees) {
+            // Format statistician data
+            $statisticanData = collect($item->statisticanData)->map(function ($data) use ($employees) {
                 $employeeName = isset($employees[$data->assign_user]) ? $employees[$data->assign_user]->employee_name : null;
-
                 return [
                     'name' => $employeeName,
                     'status' => $data->status,
                 ];
             })->toArray();
 
-            $item->journal_data = collect($item->journalData)->map(function ($data) {
+            // Format journal data
+            $journalData = collect($item->journalData)->map(function ($data) {
                 return [
                     'name' => $data->assign_user,
                     'status' => $data->status,
                 ];
             })->toArray();
 
-            $item->payment_details = $item->paymentProcess;
+            // Get payment details
+            $paymentDetails = $item->paymentProcess;
 
+            // Get the base model data as array
+            $itemArray = $item->toArray();
+
+            // Add the formatted data
+            $itemArray['writer_data'] = $writerData;
+            $itemArray['reviewer_data'] = $reviewerData;
+            $itemArray['statistican_data'] = $statisticanData;
+            $itemArray['journal_data'] = $journalData;
+            $itemArray['payment_details'] = $paymentDetails;
+
+            // Calculate fees by type with created_date
             $groupedPayments = collect($item->employeePaymentDetails)
                 ->groupBy('type')
                 ->mapWithKeys(function ($group, $type) {
@@ -1283,16 +1294,37 @@ class ReportsController extends Controller
                         return (float) $g->payment;
                     });
 
-                    return [$type . '_fee' => $total];
-                });
+                    // Get all created dates
+                    $createdDates = $group->pluck('created_date')->filter()->unique()->values()->toArray();
 
-            foreach ($groupedPayments as $key => $val) {
-                $item->$key = $val;
-            }
+                    // Only return if total > 0
+                    if ($total > 0) {
+                        return [
+                            $type . '_fee' => $total,
+                            $type . '_fee_created_date' => $createdDates
+                        ];
+                    }
 
-            unset($item->writerData, $item->reviewerData, $item->statisticanData, $item->journalData, $item->paymentProcess, $item->employeePaymentDetails);
+                    // Return empty array for fees with 0 total (will be filtered out)
+                    return [];
+                })
+                ->filter() // Remove empty entries
+                ->toArray();
 
-            return $item;
+            // Merge the fee keys into the main array
+            $itemArray = array_merge($itemArray, $groupedPayments);
+
+            // Remove the original relationship data to avoid duplication
+            unset(
+                $itemArray['writerData'],
+                $itemArray['reviewerData'],
+                $itemArray['statisticanData'],
+                $itemArray['journalData'],
+                $itemArray['paymentProcess'],
+                $itemArray['employeePaymentDetails']
+            );
+
+            return $itemArray;
         });
 
         return response()->json($projectList);
@@ -2511,7 +2543,7 @@ class ReportsController extends Controller
         $projectIds = $logs->pluck('project_id')->unique()->toArray();
 
         $entryProcesses = EntryProcessModel::whereIn('id', $projectIds)
-            ->orWhereIn('project_id', $projectIds) 
+            ->orWhereIn('project_id', $projectIds)
             ->get()
             ->keyBy(function ($item) {
                 return $item->project_id ?? $item->id;
