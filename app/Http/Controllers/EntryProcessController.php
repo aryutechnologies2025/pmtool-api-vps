@@ -372,7 +372,7 @@ class EntryProcessController extends Controller
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
-        // SME / Completion checks
+        // Completion checks
         $writerCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->whereIn('status', ['need_support', 'completed'])
@@ -390,6 +390,7 @@ class EntryProcessController extends Controller
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
+        // SME Publication Manager checks
         $smePublicationCompleted = ProjectAssignDetails::where('project_id', $id)
             ->whereIn('created_by', $peopleIds_pm)
             ->where('type', 'publication_manager')
@@ -417,7 +418,32 @@ class EntryProcessController extends Controller
             ])
             ->exists();
 
-        /** -------- FINAL DECISION ORDER -------- */
+        // NEW: Check if project should be in SME phase based on your index function logic
+        $shouldBeInSME = false;
+
+        // Check for SME need_support status (matches your smelist logic)
+        $hasSMEActivity = ProjectAssignDetails::where('project_id', $id)
+            ->where('type', 'sme')
+            ->where('status', 'need_support')
+            ->whereHas('projectData', function ($query) {
+                $query->where('process_status', '!=', 'completed')
+                    ->whereDoesntHave('tcData', function ($sq) {
+                        $sq->where('status', 'correction')
+                            ->where('type', 'team_coordinator');
+                    });
+            })
+            ->exists();
+
+        // Check if any core tasks are completed (writer/reviewer/statistician)
+        $hasCompletedTasks = $writerCompleted || $reviewerCompleted || $statisticianCompleted;
+
+        // Check if SME publication manager has activity
+        $hasSMEPublicationActivity = $smePublicationCompleted;
+
+        // Determine if project is in SME phase
+        $shouldBeInSME = $hasSMEActivity || ($hasCompletedTasks && !$writer && !$reviewer && !$statistician && !$rejected);
+
+        /** -------- FINAL DECISION ORDER (REVISED) -------- */
         if ($notAssigned) {
             $tracking = 'Project Manager';
         } elseif ($withdrawal) {
@@ -444,43 +470,13 @@ class EntryProcessController extends Controller
             $tracking = 'Writer';
         } elseif ($statistician) {
             $tracking = 'Statistician';
+        } elseif ($shouldBeInSME) {
+            // SME check comes BEFORE TC and inProgress
+            $tracking = 'SME';
         } elseif ($correction) {
             $tracking = 'TC';
         } elseif ($inProgress) {
             $tracking = 'TC';
-        } elseif ($writerCompleted || $reviewerCompleted || $statisticianCompleted) {
-            // Check if we're in the SME phase - this should come BEFORE publication checks
-            // Based on your index function logic, SME should trigger when tasks are completed
-            // and the project is not yet in publication phase
-            $hasSMEActivity = ProjectAssignDetails::where('project_id', $id)
-                ->where('type', 'sme')
-                ->where('status', 'need_support')
-                ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-                ->exists();
-
-            if ($hasSMEActivity) {
-                $tracking = 'SME';
-            } else {
-                // Check if it should go to SME based on completion status
-                // This mirrors the logic in your index function for smelist
-                $smeCheck = ProjectAssignDetails::where('project_id', $id)
-                    ->where('type', 'sme')
-                    ->where('status', 'need_support')
-                    ->whereHas('projectData', function ($query) {
-                        $query->where('process_status', '!=', 'completed')
-                            ->whereDoesntHave('tcData', function ($sq) {
-                                $sq->where('status', 'correction')
-                                    ->where('type', 'team_coordinator');
-                            });
-                    })
-                    ->exists();
-
-                if ($smeCheck || $smePublicationCompleted) {
-                    $tracking = 'SME';
-                } else {
-                    $tracking = 'SME'; // Default to SME if any completion exists
-                }
-            }
         } elseif ($publicationCompleted) {
             $tracking = 'Publication Manager';
         } else {
