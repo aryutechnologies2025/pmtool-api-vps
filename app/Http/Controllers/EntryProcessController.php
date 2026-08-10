@@ -315,15 +315,10 @@ class EntryProcessController extends Controller
             ->where('process_status', 'withdrawal')
             ->exists();
 
-        // Active assignments
+        // Active assignments (these mean the role is still working)
         $writer = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-        $writerNeedSupport = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'writer')
-            ->where('status', 'need_support')
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
@@ -332,12 +327,14 @@ class EntryProcessController extends Controller
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
-        $reviewerNeedSupport = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'reviewer')
-            ->where('status', 'need_support')
+
+        $statistician = ProjectAssignDetails::where('project_id', $id)
+            ->where('type', 'statistican')
+            ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
+        // Rejected checks
         $writerRejected = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->where('status', 'rejected')
@@ -350,29 +347,12 @@ class EntryProcessController extends Controller
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
-        $statistician = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'statistican')
-            ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-        $statisticianNeedSupport = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'statistican')
-            ->where('status', 'need_support')
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
         $rejected = ProjectAssignDetails::where('project_id', $id)
             ->where('status', 'rejected')
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
-        $correction = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'team_coordinator')
-            ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        // Completion checks
+        // Completion checks (these mean the role has finished their work)
         $writerCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->whereIn('status', ['need_support', 'completed'])
@@ -384,9 +364,17 @@ class EntryProcessController extends Controller
             ->whereIn('status', ['need_support', 'completed'])
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
+
         $statisticianCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'statistican')
             ->whereIn('status', ['need_support', 'completed'])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
+            ->exists();
+
+        // TC Correction
+        $correction = ProjectAssignDetails::where('project_id', $id)
+            ->where('type', 'team_coordinator')
+            ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
             ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
@@ -418,10 +406,7 @@ class EntryProcessController extends Controller
             ])
             ->exists();
 
-        // NEW: Check if project should be in SME phase based on your index function logic
-        $shouldBeInSME = false;
-
-        // Check for SME need_support status (matches your smelist logic)
+        // Check for SME activity (need_support status)
         $hasSMEActivity = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'sme')
             ->where('status', 'need_support')
@@ -434,16 +419,7 @@ class EntryProcessController extends Controller
             })
             ->exists();
 
-        // Check if any core tasks are completed (writer/reviewer/statistician)
-        $hasCompletedTasks = $writerCompleted || $reviewerCompleted || $statisticianCompleted;
-
-        // Check if SME publication manager has activity
-        $hasSMEPublicationActivity = $smePublicationCompleted;
-
-        // Determine if project is in SME phase
-        $shouldBeInSME = $hasSMEActivity || ($hasCompletedTasks && !$writer && !$reviewer && !$statistician && !$rejected);
-
-        /** -------- FINAL DECISION ORDER (REVISED) -------- */
+        /** -------- FINAL DECISION ORDER -------- */
         if ($notAssigned) {
             $tracking = 'Project Manager';
         } elseif ($withdrawal) {
@@ -456,27 +432,42 @@ class EntryProcessController extends Controller
             $tracking = 'Project Manager, TC, writer';
         } elseif ($rejected) {
             $tracking = 'Project Manager, TC';
-        } elseif ($writer && $reviewer && $statistician) {
-            $tracking = 'Writer, Reviewer, Statistician';
-        } elseif ($writer && $reviewer) {
-            $tracking = 'Writer, Reviewer';
-        } elseif ($writer && $statistician) {
-            $tracking = 'Writer, Statistician';
-        } elseif ($reviewer && $statistician) {
-            $tracking = 'Reviewer, Statistician';
-        } elseif ($reviewer) {
-            $tracking = 'Reviewer';
         } elseif ($writer) {
+            // WRITER is still active - this should take precedence over everything except active reviewer/statistician
             $tracking = 'Writer';
+        } elseif ($reviewer) {
+            // REVIEWER is still active
+            $tracking = 'Reviewer';
         } elseif ($statistician) {
+            // STATISTICIAN is still active
             $tracking = 'Statistician';
-        } elseif ($shouldBeInSME) {
-            // SME check comes BEFORE TC and inProgress
-            $tracking = 'SME';
         } elseif ($correction) {
+            // TC correction needed
             $tracking = 'TC';
         } elseif ($inProgress) {
-            $tracking = 'TC';
+            // Project is in progress but no active role assignments found
+            // Check if it should go to SME or stay in TC
+            if ($writerCompleted || $reviewerCompleted || $statisticianCompleted) {
+                // Some roles are completed, check if we should move to SME
+                // BUT only if there's SME activity or publication manager activity
+                if ($hasSMEActivity || $smePublicationCompleted) {
+                    $tracking = 'SME';
+                } else {
+                    // If no SME activity yet, check if all required roles are completed
+                    // For now, keep as TC until SME is explicitly assigned
+                    $tracking = 'TC';
+                }
+            } else {
+                $tracking = 'TC';
+            }
+        } elseif ($writerCompleted || $reviewerCompleted || $statisticianCompleted) {
+            // Roles are completed but project is not in_progress
+            if ($hasSMEActivity || $smePublicationCompleted) {
+                $tracking = 'SME';
+            } else {
+                // Default to TC if no SME activity
+                $tracking = 'TC';
+            }
         } elseif ($publicationCompleted) {
             $tracking = 'Publication Manager';
         } else {
