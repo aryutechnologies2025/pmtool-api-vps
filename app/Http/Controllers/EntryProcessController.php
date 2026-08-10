@@ -259,168 +259,199 @@ class EntryProcessController extends Controller
         }
     }
 
-    private function getTrackingStatusByProjectId($id)
-    {
-        $tracking = null;
-
-        $peopleIds_pm = People::where('position', '27')->pluck('id')->toArray();
-        $peopleIds_sme = People::where('position', '28')->pluck('id')->toArray();
-
-        $notAssigned = EntryProcessModel::where('id', $id)
-            ->where('process_status', 'not_assigned')
-            ->exists();
-        $inProgress = EntryProcessModel::where('id', $id)
-            ->where('process_status', 'in_progress')
-            ->exists();
-        $withdrawal = EntryProcessModel::where('id', $id)
-            ->where('process_status', 'withdrawal')
-            ->exists();
-
-        // Active assignments
-        $writer = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'writer')
-            ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-        $writerNeedSupport = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'writer')
-            ->where('status', 'need_support')
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        $reviewer = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'reviewer')
-            ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-        $reviewerNeedSupport = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'reviewer')
-            ->where('status', 'need_support')
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        $writerRejected = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'writer')
-            ->where('status', 'rejected')
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        $reviewerRejected = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'reviewer')
-            ->where('status', 'rejected')
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        $statistician = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'statistican')
-            ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-        $statisticianNeedSupport = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'statistican')
-            ->where('status', 'need_support')
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        $rejected = ProjectAssignDetails::where('project_id', $id)
-            ->where('status', 'rejected')
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        $correction = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'team_coordinator')
-            ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
-            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
-            ->exists();
-
-        // SME / Completion checks
-        $writerCompleted = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'writer')
-            ->whereIn('status', ['need_support', 'completed'])
-            ->exists();
-
-        $reviewerCompleted = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'reviewer')
-            ->whereIn('status', ['need_support', 'completed'])
-            ->exists();
-        $statisticianCompleted = ProjectAssignDetails::where('project_id', $id)
-            ->where('type', 'statistican')
-            ->whereIn('status', ['need_support', 'completed'])
-            ->exists();
-
-        $smePublicationCompleted = ProjectAssignDetails::where('project_id', $id)
-            ->whereIn('created_by', $peopleIds_pm)
-            ->where('type', 'publication_manager')
-            ->whereIn('status', [
-                'pending_author',
-                'rejected',
-                'reviewer_comments',
-                'resubmission',
-                'published',
-                'submitted',
-            ])
-            ->exists();
-
-        $publicationCompleted = ProjectAssignDetails::where('project_id', $id)
-            ->whereIn('created_by', $peopleIds_sme)
-            ->where('type', 'publication_manager')
-            ->whereIn('status', [
-                'pending_author',
-                'rejected',
-                'reviewer_comments',
-                'resubmission',
-                'published',
-                'submitted',
-            ])
-            ->exists();
-
-        /** -------- FINAL DECISION ORDER -------- */
-        if ($notAssigned) {
-            $tracking = 'Project Manager';
-        } elseif ($withdrawal) {
-            $tracking = 'Project Withdrawn';
-        } elseif ($rejected && $writer && $reviewer && $statistician) {
-            $tracking = 'TC, Writer, Reviewer, Statistician';
-
-            // --- rejection block: most specific first, so nothing shadows the others ---
-        } elseif ($rejected && $writerRejected) {
-            $tracking = 'Project Manager, TC, Reviewer';
-        } elseif ($rejected && $reviewerRejected) {
-            $tracking = 'Project Manager, TC, writer';
-        } elseif ($rejected) {
-            $tracking = 'Project Manager, TC';
-
-            // --- active-role combos: check the wider combos before the single-role ones ---
-        } elseif ($writer && $reviewer && $statistician) {
-            $tracking = 'Writer, Reviewer, Statistician';
-        } elseif ($writer && $reviewer) {
-            $tracking = 'Writer, Reviewer';
-        } elseif ($writer && $statistician) {
-            $tracking = 'Writer, Statistician';
-        } elseif ($reviewer && $statistician) {
-            $tracking = 'Reviewer, Statistician';
-        } elseif ($reviewer) {
-            $tracking = 'Reviewer';
-        } elseif ($writer) {
-            $tracking = 'Writer';
-        } elseif ($reviewerNeedSupport || $writerNeedSupport || $statisticianNeedSupport) {
-            $tracking = 'SME';
-        } elseif ($correction) {
-            $tracking = 'TC';
-        } elseif ($inProgress) {
-            $tracking = 'TC';
-        } elseif (($writerCompleted && $reviewerCompleted) || $smePublicationCompleted || $writerCompleted || $reviewerCompleted || $statisticianCompleted) {
-            $tracking = 'SME';
-        } elseif ($publicationCompleted) {
-            $tracking = 'Publication Manager';
-        } elseif ($statistician) {
-            $tracking = 'Statistician';
-        } else {
-            $tracking = 'Project Manager';
+    private array $trackingStatusCache = [];
+    private const ROLE_STATUS_MAP = [
+    'team_coordinator' => [
+        'TC', 'Project Manager, TC', 'Project Manager, TC, Reviewer',
+        'Project Manager, TC, writer', 'TC, Writer, Reviewer, Statistician',
+    ],
+    'sme' => [
+        'Writer', 'Reviewer', 'Statistician',
+        'Writer, Reviewer', 'Writer, Statistician', 'Reviewer, Statistician',
+        'Writer, Reviewer, Statistician', 'SME',
+    ],
+    'publication_manager' => ['Publication Manager'],
+    'project_manager' => ['Project Manager', 'Project Withdrawn'],
+];
+private function filterByTrackingRole($items, array $allowedStatuses, string $idField = 'project_id')
+{
+    return collect($items)->filter(function ($item) use ($allowedStatuses, $idField) {
+        $pid = is_array($item) ? ($item[$idField] ?? null) : ($item->{$idField} ?? null);
+ 
+        if (! $pid) {
+            return false;
         }
+ 
+        return in_array($this->getTrackingStatusByProjectId($pid), $allowedStatuses, true);
+    })->values();
+}
 
-        return $tracking;
+    private function getTrackingStatusByProjectId($id)
+{
+    if (array_key_exists($id, $this->trackingStatusCache)) {
+        return $this->trackingStatusCache[$id];
     }
+ 
+    $tracking = null;
+ 
+    $peopleIds_pm = People::where('position', '27')->pluck('id')->toArray();
+    $peopleIds_sme = People::where('position', '28')->pluck('id')->toArray();
+ 
+    $notAssigned = EntryProcessModel::where('id', $id)
+        ->where('process_status', 'not_assigned')
+        ->exists();
+    $inProgress = EntryProcessModel::where('id', $id)
+        ->where('process_status', 'in_progress')
+        ->exists();
+    $withdrawal = EntryProcessModel::where('id', $id)
+        ->where('process_status', 'withdrawal')
+        ->exists();
+ 
+    // Active assignments
+    $writer = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'writer')
+        ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+    $writerNeedSupport = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'writer')
+        ->where('status', 'need_support')
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+ 
+    $reviewer = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'reviewer')
+        ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+    $reviewerNeedSupport = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'reviewer')
+        ->where('status', 'need_support')
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+ 
+    $writerRejected = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'writer')
+        ->where('status', 'rejected')
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+ 
+    $reviewerRejected = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'reviewer')
+        ->where('status', 'rejected')
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+ 
+    $statistician = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'statistican')
+        ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+    $statisticianNeedSupport = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'statistican')
+        ->where('status', 'need_support')
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+ 
+    $rejected = ProjectAssignDetails::where('project_id', $id)
+        ->where('status', 'rejected')
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+ 
+    $correction = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'team_coordinator')
+        ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
+        ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+        ->exists();
+ 
+    // SME / Completion checks
+    $writerCompleted = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'writer')
+        ->whereIn('status', ['need_support', 'completed'])
+        ->exists();
+ 
+    $reviewerCompleted = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'reviewer')
+        ->whereIn('status', ['need_support', 'completed'])
+        ->exists();
+    $statisticianCompleted = ProjectAssignDetails::where('project_id', $id)
+        ->where('type', 'statistican')
+        ->whereIn('status', ['need_support', 'completed'])
+        ->exists();
+ 
+    $smePublicationCompleted = ProjectAssignDetails::where('project_id', $id)
+        ->whereIn('created_by', $peopleIds_pm)
+        ->where('type', 'publication_manager')
+        ->whereIn('status', [
+            'pending_author', 'rejected', 'reviewer_comments',
+            'resubmission', 'published', 'submitted',
+        ])
+        ->exists();
+ 
+    $publicationCompleted = ProjectAssignDetails::where('project_id', $id)
+        ->whereIn('created_by', $peopleIds_sme)
+        ->where('type', 'publication_manager')
+        ->whereIn('status', [
+            'pending_author', 'rejected', 'reviewer_comments',
+            'resubmission', 'published', 'submitted',
+        ])
+        ->exists();
+ 
+    /** -------- FINAL DECISION ORDER -------- */
+    if ($notAssigned) {
+        $tracking = 'Project Manager';
+ 
+    } elseif ($withdrawal) {
+        $tracking = 'Project Withdrawn';
+ 
+    } elseif ($rejected && $writer && $reviewer && $statistician) {
+        $tracking = 'TC, Writer, Reviewer, Statistician';
+ 
+    // --- rejection block: most specific first, so nothing shadows the others ---
+    } elseif ($rejected && $writerRejected) {
+        $tracking = 'Project Manager, TC, Reviewer';
+    } elseif ($rejected && $reviewerRejected) {
+        $tracking = 'Project Manager, TC, writer';
+    } elseif ($rejected) {
+        $tracking = 'Project Manager, TC';
+ 
+    // --- active-role combos: check the wider combos before the single-role ones ---
+    } elseif ($writer && $reviewer && $statistician) {
+        $tracking = 'Writer, Reviewer, Statistician';
+    } elseif ($writer && $reviewer) {
+        $tracking = 'Writer, Reviewer';
+    } elseif ($writer && $statistician) {
+        $tracking = 'Writer, Statistician';
+    } elseif ($reviewer && $statistician) {
+        $tracking = 'Reviewer, Statistician';
+    } elseif ($reviewer) {
+        $tracking = 'Reviewer';
+    } elseif ($writer) {
+        $tracking = 'Writer';
+ 
+    } elseif ($reviewerNeedSupport || $writerNeedSupport || $statisticianNeedSupport) {
+        $tracking = 'SME';
+ 
+    } elseif ($correction) {
+        $tracking = 'TC';
+    } elseif ($inProgress) {
+        $tracking = 'TC';
+ 
+    } elseif (($writerCompleted && $reviewerCompleted) || $smePublicationCompleted || $writerCompleted || $reviewerCompleted || $statisticianCompleted) {
+        $tracking = 'SME';
+ 
+    } elseif ($publicationCompleted) {
+        $tracking = 'Publication Manager';
+ 
+    } elseif ($statistician) {
+        $tracking = 'Statistician';
+ 
+    } else {
+        $tracking = 'Project Manager';
+    }
+ 
+    return $this->trackingStatusCache[$id] = $tracking;
+}
 
     public function getEmployeeName()
     {
