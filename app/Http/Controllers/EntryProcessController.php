@@ -424,16 +424,12 @@ class EntryProcessController extends Controller
             $tracking = 'Project Withdrawn';
         } elseif ($rejected && $writer && $reviewer && $statistician) {
             $tracking = 'TC, Writer, Reviewer, Statistician';
-
-            // --- rejection block: most specific first, so nothing shadows the others ---
         } elseif ($rejected && $writerRejected) {
             $tracking = 'Project Manager, TC, Reviewer';
         } elseif ($rejected && $reviewerRejected) {
             $tracking = 'Project Manager, TC, writer';
         } elseif ($rejected) {
             $tracking = 'Project Manager, TC';
-
-            // --- active-role combos: check the wider combos before the single-role ones ---
         } elseif ($writer && $reviewer && $statistician) {
             $tracking = 'Writer, Reviewer, Statistician';
         } elseif ($writer && $reviewer) {
@@ -446,18 +442,47 @@ class EntryProcessController extends Controller
             $tracking = 'Reviewer';
         } elseif ($writer) {
             $tracking = 'Writer';
-        } elseif  (($writerCompleted && $reviewerCompleted) || $smePublicationCompleted || $writerCompleted || $reviewerCompleted || $statisticianCompleted)  {
-            $tracking = 'SME';
+        } elseif ($statistician) {
+            $tracking = 'Statistician';
         } elseif ($correction) {
             $tracking = 'TC';
         } elseif ($inProgress) {
             $tracking = 'TC';
-        } elseif (($writerCompleted && $reviewerCompleted) || $smePublicationCompleted || $writerCompleted || $reviewerCompleted || $statisticianCompleted) {
-            $tracking = 'SME';
+        } elseif ($writerCompleted || $reviewerCompleted || $statisticianCompleted) {
+            // Check if we're in the SME phase - this should come BEFORE publication checks
+            // Based on your index function logic, SME should trigger when tasks are completed
+            // and the project is not yet in publication phase
+            $hasSMEActivity = ProjectAssignDetails::where('project_id', $id)
+                ->where('type', 'sme')
+                ->where('status', 'need_support')
+                ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
+                ->exists();
+
+            if ($hasSMEActivity) {
+                $tracking = 'SME';
+            } else {
+                // Check if it should go to SME based on completion status
+                // This mirrors the logic in your index function for smelist
+                $smeCheck = ProjectAssignDetails::where('project_id', $id)
+                    ->where('type', 'sme')
+                    ->where('status', 'need_support')
+                    ->whereHas('projectData', function ($query) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->whereDoesntHave('tcData', function ($sq) {
+                                $sq->where('status', 'correction')
+                                    ->where('type', 'team_coordinator');
+                            });
+                    })
+                    ->exists();
+
+                if ($smeCheck || $smePublicationCompleted) {
+                    $tracking = 'SME';
+                } else {
+                    $tracking = 'SME'; // Default to SME if any completion exists
+                }
+            }
         } elseif ($publicationCompleted) {
             $tracking = 'Publication Manager';
-        } elseif ($statistician) {
-            $tracking = 'Statistician';
         } else {
             $tracking = 'Project Manager';
         }
