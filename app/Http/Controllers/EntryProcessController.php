@@ -376,15 +376,18 @@ class EntryProcessController extends Controller
         $writerCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->whereIn('status', ['need_support', 'completed'])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $reviewerCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'reviewer')
             ->whereIn('status', ['need_support', 'completed'])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
         $statisticianCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'statistican')
             ->whereIn('status', ['need_support', 'completed'])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $smePublicationCompleted = ProjectAssignDetails::where('project_id', $id)
@@ -398,6 +401,7 @@ class EntryProcessController extends Controller
                 'published',
                 'submitted',
             ])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $publicationCompleted = ProjectAssignDetails::where('project_id', $id)
