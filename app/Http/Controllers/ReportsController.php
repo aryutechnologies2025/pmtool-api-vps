@@ -963,8 +963,8 @@ class ReportsController extends Controller
 
     public function projectPending(Request $request)
     {
-        // $fromDate = $request->query('from_date');
-        // $toDate = $request->query('to_date');
+        $fromDate = $request->query('from_date');
+        $toDate = $request->query('to_date');
         $type_of_work = ['statistics', 'thesis', 'others', 'manuscript'];
 
         // Get People IDs
@@ -1248,7 +1248,10 @@ class ReportsController extends Controller
 
         // Author
         $pending_author = EntryProcessModel::where('is_deleted', 0)
+            ->where('status', '1')
             ->where('process_status', 'pending_author')
+            ->when($fromDate, fn($q) => $q->whereDate('entry_date', '>=', $fromDate))
+            ->when($toDate, fn($q) => $q->whereDate('entry_date', '<=', $toDate))
             ->get();
 
         $author_count = $pending_author->count();
