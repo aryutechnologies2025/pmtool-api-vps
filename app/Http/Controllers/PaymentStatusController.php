@@ -1181,269 +1181,239 @@ class PaymentStatusController extends Controller
         return $response;
     }
 
-    public function getPaymentList(Request $request)
-    {
-        // Count total payments for each status
-        $paymentPendingCount = PaymentStatusModel::select('id')->where('payment_status', 'final_payment_pending')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0);
-                // ->where('process_status', '!=', 'completed');
-            })
-            ->count();
-        $paymentPendingIds = PaymentStatusModel::where('payment_status', 'final_payment_pending')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0);
-                // ->where('process_status', '!=', 'completed');
-            })
-            ->pluck('project_id')
-            ->toArray();
-        $advancePendingCount = PaymentStatusModel::select('id')->where('payment_status', 'advance_pending')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->count();
+   public function getPaymentList(Request $request)
+{
+    // --- Status counts/ids (query once, reuse) ---
+    $paymentPendingIds = PaymentStatusModel::where('payment_status', 'final_payment_pending')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0);
+        })
+        ->pluck('project_id')
+        ->toArray();
+    $paymentPendingCount = count($paymentPendingIds);
 
-        $advancePendingIds = PaymentStatusModel::where('payment_status', 'advance_pending')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->pluck('project_id')
-            ->toArray();
-        $partialPaymentPendingCount = PaymentStatusModel::select('id')->where('payment_status', 'partial_payment_pending')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed');
-            })
+    $advancePendingIds = PaymentStatusModel::where('payment_status', 'advance_pending')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->pluck('project_id')
+        ->toArray();
+    $advancePendingCount = count($advancePendingIds);
 
-            ->count();
-        $partialPaymentPendingIds = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->pluck('project_id')
-            ->toArray();
+    $partialPaymentPendingIds = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->pluck('project_id')
+        ->toArray();
+    $partialPaymentPendingCount = count($partialPaymentPendingIds);
 
-        // Get total payments for each status
-        $paymentsPending = PaymentStatusModel::where('payment_status', 'final_payment_pending')
-            ->with('paymentData', 'paymentLData')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0);
-                // ->where('process_status', '!=', 'completed');
-            })
+    // --- Full records needed for sums ---
+    $paymentsPending = PaymentStatusModel::where('payment_status', 'final_payment_pending')
+        ->with('paymentData', 'paymentLData')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0);
+        })
+        ->get();
 
-            ->get();
-        $advancePending = PaymentStatusModel::where('payment_status', 'advance_pending')
-            ->with('paymentData', 'paymentLData')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->get();
-        $partialPaymentPending = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
-            ->with('paymentData')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->whereHas('paymentData', function ($query) {
-                $query->where('payment_type', 'partial_payment_pending');
-            })
-            ->get();
+    $advancePending = PaymentStatusModel::where('payment_status', 'advance_pending')
+        ->with('paymentData', 'paymentLData')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->get();
 
-        // Fetch payments that are verified (is_verify = 1)
-        $completedPayments = PaymentStatusModel::where('is_verify', 1)
-            ->with('paymentData', 'paymentLData')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0);
-                // ->where('process_status', '!=', 'completed');
-            })
-            ->get();
+    $partialPaymentPending = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
+        ->with('paymentData')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0)
+                ->where('process_status', '!=', 'completed');
+        })
+        ->whereHas('paymentData', function ($query) {
+            $query->where('payment_type', 'partial_payment_pending');
+        })
+        ->get();
 
-        // Sum the payments for each status
-        $totalPaymentPending = 0;
-        $totalAdvancePending = 0;
-        $totalPartialPaymentPending = 0;
-        $totalCompletedPayment = 0;
+    $completedPayments = PaymentStatusModel::where('is_verify', 1)
+        ->with('paymentData', 'paymentLData')
+        ->whereHas('projectData', function ($query) {
+            $query->where('is_deleted', 0);
+        })
+        ->get();
+    $completedPaymentsIds = $completedPayments->pluck('project_id')->toArray();
+    $completedPaymentsCount = $completedPayments->count();
 
-        // Sum payments for 'payment_pending'
-        foreach ($paymentsPending as $payment) {
-            $totalPaymentPending += $payment->paymentData->where('payment_type', 'final_payment_pending')->sum('payment');
-        }
+    // --- Sums ---
+    $totalPaymentPending = 0;
+    $totalAdvancePending = 0;
+    $totalPartialPaymentPending = 0;
+    $totalCompletedPayment = 0;
 
-        // Sum payments for 'advance_pending'
-        foreach ($advancePending as $payment) {
-            $totalAdvancePending += $payment->paymentData->where('payment_type', 'advance_pending')->sum('payment');
-        }
-
-        // Sum payments for 'partial_payment_pending'
-        foreach ($partialPaymentPending as $payment) {
-            $totalPartialPaymentPending += $payment->paymentData->where('payment_type', 'partial_payment_pending')->sum('payment');
-        }
-
-        // Sum payments for 'completed/verified' payments
-        foreach ($completedPayments as $payment) {
-            $totalCompletedPayment += $payment->paymentData->whereIn('payment_type', ['partial_payment_pending', 'final_payment_pending', 'advance_pending', 'completed'])->sum('payment');
-        }
-        // Count the total number of completed/verified payments
-        $completedPaymentsCount = PaymentStatusModel::where('is_verify', 1)
-            ->with('paymentData', 'paymentLData')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0);
-                // ->where('process_status', '!=', 'completed');
-            })
-            ->count();
-        $completedPaymentsIds = PaymentStatusModel::where('is_verify', 1)
-            ->with('paymentData', 'paymentLData')
-            ->whereHas('projectData', function ($query) {
-                $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed');
-            })
-            ->pluck('project_id')
-            ->toArray();
-
-        $projects = EntryProcessModel::with(['paymentProcess.paymentLog'])
-            ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'client_name')
-            ->where('is_deleted', 0)
-            ->get();
-
-        $paymentProject = PaymentStatusModel::with(['paymentWEmpData', 'paymentREmpData', 'paymentSEmpData', 'projectData'])->get();
-
-        $paymentProjectDetails = $paymentProject->flatMap(function ($project) {
-            $paymentData = [];
-
-            // Writer Payment
-            if (! empty($project->paymentREmpData->writer_payment) && isset($project->writerId)) {
-                $projectscount = EntryProcessModel::select('id')->where('writer', $project->writerId->id)
-                    ->where('is_deleted', 0)
-                    ->whereIn('id', PaymentStatusModel::pluck('project_id'))
-                    ->count();
-
-                $paymentData[] = [
-                    'total_project' => $projectscount,
-                    'id' => $project->writerId->id,
-                    'type' => 'writer',
-                    'totalname' => $project->writerId->employee_name,
-                    'totalproject' => 0,
-                    'payment' => $project->writer_payment,
-                    'payment_status' => $project->writer_payment_status,
-                    'payment_date' => $project->writer_payment_date,
-
-                ];
-            }
-
-            // Reviewer Payment
-            if (! empty($project->reviewer_payment) && isset($project->reviewerID)) {
-                $projectscountReviewer = EntryProcessModel::select('id')->where('reviewer', $project->reviewerID->id)
-                    ->where('is_deleted', 0)
-                    ->whereIn('id', PaymentStatusModel::pluck('project_id'))
-                    ->count();
-
-                $paymentData[] = [
-                    'total_project' => $projectscountReviewer,
-                    'id' => $project->reviewerID->id,
-                    'type' => 'reviewer',
-                    'totalname' => $project->reviewerID->employee_name,
-                    'totalproject' => 0,
-                    'payment' => $project->reviewer_payment,
-                    'payment_status' => $project->reviewer_payment_status,
-                    'payment_date' => $project->reviewer_payment_date,
-                ];
-            }
-
-            // Statistician Payment
-            if (! empty($project->statistican_payment) && isset($project->statisticanID)) {
-
-                $projectscountStatistican = EntryProcessModel::select('id')->where('statistican', $project->statisticanID->id)
-                    ->where('is_deleted', 0)
-                    ->whereIn('id', PaymentStatusModel::pluck('project_id'))
-                    ->count();
-
-                $paymentData[] = [
-                    'total_project' => $projectscountStatistican,
-                    'id' => $project->statisticanID->id,
-                    'type' => 'statistican',
-                    'totalname' => $project->statisticanID->employee_name,
-                    'totalproject' => 0,
-                    'payment' => $project->statistican_payment,
-                    'payment_status' => $project->statistican_payment_status,
-                    'payment_date' => $project->statistican_payment_date,
-                ];
-            }
-
-            return $paymentData;
-        })->groupBy('id')->map(function ($items) {
-            return [
-                'id' => $items->first()['id'],
-                'type' => $items->first()['type'],
-                'totalname' => $items->first()['totalname'],
-                'total_project' => $items->first()['total_project'],
-                'totalpayment' => $items->sum('payment'),
-                'payment_status' => $items->first()['payment_status'],
-                'payment_date' => $items->first()['payment_date'],
-            ];
-        })->values();
-
-        foreach ($projects as $project) {
-            if ($project->paymentProcess) {
-                $payment_id = $project->paymentProcess->id;
-                $project_id = $project->paymentProcess->project_id;
-                $paymentstatus = $project->paymentProcess->payment_status;
-                $project->paymentstatus = $paymentstatus;
-                $project->is_verify = $project->paymentProcess->is_verify;
-                $project->payment_id = $payment_id;
-
-                $paymentdetails = PaymentDetails::where('payment_id', $payment_id)
-                    ->where('is_deleted', 0)
-                    ->get();
-                $total_cost = $paymentdetails->sum('payment');
-                $project->total_cost = $total_cost ?: '-';
-
-                $paymentdate = '-';
-                $paymentlogs = PaymentLogs::where('project_id', $project_id)
-                    ->where('payment_id', $payment_id)
-                    ->where('payment_status', $paymentstatus)
-                    ->latest()
-                    ->first();
-
-                if ($paymentlogs) {
-                    if ($paymentlogs->created_date) {
-                        $project->paymentdate = $paymentlogs->created_date;
-                    } else {
-                        $project->paymentdate = '-';
-                    }
-                } else {
-                    $project->paymentdate = '-';
-                }
-            } else {
-                $project->paymentdate = '-';
-                $project->paymentstatus = '-';
-                $project->total_cost = '-';
-                $project->is_verify = '-';
-                $project->payment_id = '-';
-            }
-        }
-
-        // Return the total counts and sums
-        return response()->json([
-            'totalPaymentPendingCount' => $paymentPendingCount,
-            'totalAdvancePendingCount' => $advancePendingCount,
-            'totalPartialPaymentPendingCount' => $partialPaymentPendingCount,
-            'totalPaymentPending' => $totalPaymentPending,
-            'totalAdvancePending' => $totalAdvancePending,
-            'totalPartialPaymentPending' => $totalPartialPaymentPending,
-            'totalCompletedPaymentCount' => $completedPaymentsCount,
-            'totalCompletedPayment' => $totalCompletedPayment,
-            'projects' => $projects,
-            'paymentProjectDetails' => $paymentProjectDetails,
-            'advancePendingIds' => $advancePendingIds,
-            'completedPaymentsIds' => $completedPaymentsIds,
-            'partialPaymentPendingIds' => $partialPaymentPendingIds,
-            'paymentPendingIds' => $paymentPendingIds,
-        ]);
+    foreach ($paymentsPending as $payment) {
+        $totalPaymentPending += $payment->paymentData->where('payment_type', 'final_payment_pending')->sum('payment');
     }
+
+    foreach ($advancePending as $payment) {
+        $totalAdvancePending += $payment->paymentData->where('payment_type', 'advance_pending')->sum('payment');
+    }
+
+    foreach ($partialPaymentPending as $payment) {
+        $totalPartialPaymentPending += $payment->paymentData->where('payment_type', 'partial_payment_pending')->sum('payment');
+    }
+
+    foreach ($completedPayments as $payment) {
+        $totalCompletedPayment += $payment->paymentData
+            ->whereIn('payment_type', ['partial_payment_pending', 'final_payment_pending', 'advance_pending', 'completed'])
+            ->sum('payment');
+    }
+
+    // --- Projects list ---
+    $projects = EntryProcessModel::with(['paymentProcess.paymentLog'])
+        ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'client_name', 'writer', 'reviewer', 'statistican')
+        ->where('is_deleted', 0)
+        ->get();
+
+    $paymentProject = PaymentStatusModel::with(['paymentWEmpData', 'paymentREmpData', 'paymentSEmpData', 'projectData'])->get();
+
+    // --- Precompute project counts per employee ONCE (was previously run per row = N+1) ---
+    $activeProjectIds = PaymentStatusModel::pluck('project_id')->toArray();
+
+    $writerProjectCounts = EntryProcessModel::select('writer', DB::raw('count(*) as cnt'))
+        ->where('is_deleted', 0)
+        ->whereIn('id', $activeProjectIds)
+        ->groupBy('writer')
+        ->pluck('cnt', 'writer');
+
+    $reviewerProjectCounts = EntryProcessModel::select('reviewer', DB::raw('count(*) as cnt'))
+        ->where('is_deleted', 0)
+        ->whereIn('id', $activeProjectIds)
+        ->groupBy('reviewer')
+        ->pluck('cnt', 'reviewer');
+
+    $statisticanProjectCounts = EntryProcessModel::select('statistican', DB::raw('count(*) as cnt'))
+        ->where('is_deleted', 0)
+        ->whereIn('id', $activeProjectIds)
+        ->groupBy('statistican')
+        ->pluck('cnt', 'statistican');
+
+    $paymentProjectDetails = $paymentProject->flatMap(function ($project) use ($writerProjectCounts, $reviewerProjectCounts, $statisticanProjectCounts) {
+        $paymentData = [];
+
+        // Writer Payment
+        if (! empty($project->paymentWEmpData->writer_payment) && isset($project->paymentWEmpData->id)) {
+            $paymentData[] = [
+                'total_project' => $writerProjectCounts[$project->paymentWEmpData->id] ?? 0,
+                'id' => $project->paymentWEmpData->id,
+                'type' => 'writer',
+                'totalname' => $project->paymentWEmpData->employee_name,
+                'totalproject' => 0,
+                'payment' => $project->paymentWEmpData->writer_payment,
+                'payment_status' => $project->paymentWEmpData->writer_payment_status,
+                'payment_date' => $project->paymentWEmpData->writer_payment_date,
+            ];
+        }
+
+        // Reviewer Payment
+        if (! empty($project->paymentREmpData->reviewer_payment) && isset($project->paymentREmpData->id)) {
+            $paymentData[] = [
+                'total_project' => $reviewerProjectCounts[$project->paymentREmpData->id] ?? 0,
+                'id' => $project->paymentREmpData->id,
+                'type' => 'reviewer',
+                'totalname' => $project->paymentREmpData->employee_name,
+                'totalproject' => 0,
+                'payment' => $project->paymentREmpData->reviewer_payment,
+                'payment_status' => $project->paymentREmpData->reviewer_payment_status,
+                'payment_date' => $project->paymentREmpData->reviewer_payment_date,
+            ];
+        }
+
+        // Statistician Payment
+        if (! empty($project->paymentSEmpData->statistican_payment) && isset($project->paymentSEmpData->id)) {
+            $paymentData[] = [
+                'total_project' => $statisticanProjectCounts[$project->paymentSEmpData->id] ?? 0,
+                'id' => $project->paymentSEmpData->id,
+                'type' => 'statistican',
+                'totalname' => $project->paymentSEmpData->employee_name,
+                'totalproject' => 0,
+                'payment' => $project->paymentSEmpData->statistican_payment,
+                'payment_status' => $project->paymentSEmpData->statistican_payment_status,
+                'payment_date' => $project->paymentSEmpData->statistican_payment_date,
+            ];
+        }
+
+        return $paymentData;
+    })->groupBy('id')->map(function ($items) {
+        return [
+            'id' => $items->first()['id'],
+            'type' => $items->first()['type'],
+            'totalname' => $items->first()['totalname'],
+            'total_project' => $items->first()['total_project'],
+            'totalpayment' => $items->sum('payment'),
+            'payment_status' => $items->first()['payment_status'],
+            'payment_date' => $items->first()['payment_date'],
+        ];
+    })->values();
+
+    // --- Precompute payment details totals + latest logs (was N+1: 2 queries per project) ---
+    $paymentIds = $projects->pluck('paymentProcess.id')->filter()->unique()->values();
+
+    $paymentDetailsTotals = PaymentDetails::whereIn('payment_id', $paymentIds)
+        ->where('is_deleted', 0)
+        ->select('payment_id', DB::raw('SUM(payment) as total'))
+        ->groupBy('payment_id')
+        ->pluck('total', 'payment_id');
+
+    $latestLogsByKey = PaymentLogs::whereIn('payment_id', $paymentIds)
+        ->orderByDesc('created_date')
+        ->get()
+        ->groupBy(function ($log) {
+            return $log->project_id . '|' . $log->payment_id . '|' . $log->payment_status;
+        })
+        ->map->first();
+
+    foreach ($projects as $project) {
+        if ($project->paymentProcess) {
+            $payment_id = $project->paymentProcess->id;
+            $project_id = $project->paymentProcess->project_id;
+            $paymentstatus = $project->paymentProcess->payment_status;
+
+            $project->paymentstatus = $paymentstatus;
+            $project->is_verify = $project->paymentProcess->is_verify;
+            $project->payment_id = $payment_id;
+            $project->total_cost = $paymentDetailsTotals[$payment_id] ?? '-';
+
+            $logKey = $project_id . '|' . $payment_id . '|' . $paymentstatus;
+            $log = $latestLogsByKey[$logKey] ?? null;
+            $project->paymentdate = ($log && $log->created_date) ? $log->created_date : '-';
+        } else {
+            $project->paymentdate = '-';
+            $project->paymentstatus = '-';
+            $project->total_cost = '-';
+            $project->is_verify = '-';
+            $project->payment_id = '-';
+        }
+    }
+
+    return response()->json([
+        'totalPaymentPendingCount' => $paymentPendingCount,
+        'totalAdvancePendingCount' => $advancePendingCount,
+        'totalPartialPaymentPendingCount' => $partialPaymentPendingCount,
+        'totalPaymentPending' => $totalPaymentPending,
+        'totalAdvancePending' => $totalAdvancePending,
+        'totalPartialPaymentPending' => $totalPartialPaymentPending,
+        'totalCompletedPaymentCount' => $completedPaymentsCount,
+        'totalCompletedPayment' => $totalCompletedPayment,
+        'projects' => $projects,
+        'paymentProjectDetails' => $paymentProjectDetails,
+        'advancePendingIds' => $advancePendingIds,
+        'completedPaymentsIds' => $completedPaymentsIds,
+        'partialPaymentPendingIds' => $partialPaymentPendingIds,
+        'paymentPendingIds' => $paymentPendingIds,
+    ]);
+}
 
     public function statusChange(Request $request)
     {

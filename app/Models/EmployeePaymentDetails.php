@@ -27,7 +27,7 @@ class EmployeePaymentDetails extends Model
         return $this->hasOne(User::class, 'id', 'employee_id')
         ->where('employee_type','freelancers')
         ->select('id','employee_name','employee_type','position','department','date_of_joining','phone_number','email_address','profile_image')
-        ->where('status','1')
+        // ->where('status','1')
         ->with('createdByUser');
     }
 
