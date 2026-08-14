@@ -1523,22 +1523,12 @@ class PaymentStatusController extends Controller
 
         $freelancerDetails = EmployeePaymentDetails::with(['EmployeeAny'])
             ->where('type', '!=', 'publication_manager')
+            ->whereNotNull('employee_id')
+            ->where('employee_id', '!=', '')
+            ->where('employee_id', 'REGEXP', '^[0-9]+$') // only numeric employee_ids
             ->get();
 
         $grouped = $freelancerDetails->groupBy('employee_id')->map(function ($items, $employeeId) {
-
-            // Skip/guard bad employee_id values (blank or non-numeric)
-            if (!is_numeric($employeeId)) {
-                return [
-                    'freelancer_id' => $employeeId,
-                    'freelancer_name' => 'Unknown / Invalid ID',
-                    'freelancer_project_count' => 0,
-                    'freelancer_project_id' => [],
-                    'freelancer_total_payment' => $items->sum(fn($item) => (float) $item->payment ?? 0),
-                    'freelancerPendingAmount' => $items->where('status', 'pending')->sum(fn($item) => (float) $item->payment ?? 0),
-                    'freelancerPaidAmount' => $items->where('status', 'paid')->sum(fn($item) => (float) $item->payment ?? 0),
-                ];
-            }
 
             $totalProjectsFreelancer = ProjectAssignDetails::where('assign_user', $employeeId)
                 ->where('status', '!=', 'rejected')
