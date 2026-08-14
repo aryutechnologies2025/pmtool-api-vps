@@ -1517,18 +1517,24 @@ class PaymentStatusController extends Controller
         ]);
     }
 
-    public function getFreelancerDetails()
-    {
-        $people = People::where('employee_type', 'freelancers')->get();
+  public function getFreelancerDetails()
+{
+    $freelancerDetails = EmployeePaymentDetails::with(['EmployeeAny'])
+        ->where('type', '!=', 'publication_manager')
+        ->whereNotNull('employee_id')
+        ->where('employee_id', '!=', '')
+        ->where('employee_id', 'REGEXP', '^[0-9]+$')
+        ->get();
 
-        $freelancerDetails = EmployeePaymentDetails::with(['EmployeeAny'])
-            ->where('type', '!=', 'publication_manager')
-            ->whereNotNull('employee_id')
-            ->where('employee_id', '!=', '')
-            ->where('employee_id', 'REGEXP', '^[0-9]+$') // only numeric employee_ids
-            ->get();
+    $grouped = $freelancerDetails->groupBy('employee_id')
+        ->map(function ($items, $employeeId) {
 
-        $grouped = $freelancerDetails->groupBy('employee_id')->map(function ($items, $employeeId) {
+            $employee = optional($items->first()->EmployeeAny);
+
+            // Only include people who are CURRENTLY freelancers
+            if ($employee->employee_type !== 'freelancers') {
+                return null;
+            }
 
             $totalProjectsFreelancer = ProjectAssignDetails::where('assign_user', $employeeId)
                 ->where('status', '!=', 'rejected')
@@ -1541,21 +1547,17 @@ class PaymentStatusController extends Controller
 
             return [
                 'freelancer_id' => $employeeId,
-                'freelancer_name' => optional($items->first()->EmployeeAny)->employee_name ?? 'N/A',
+                'freelancer_name' => $employee->employee_name ?? 'N/A',
                 'freelancer_project_count' => $totalProjectsFreelancer,
                 'freelancer_project_id' => $totalProjectsFreelancers,
-                'freelancer_total_payment' => $items->sum(function ($item) {
-                    return (float) $item->payment ?? 0;
-                }),
-                'freelancerPendingAmount' => $items->where('status', 'pending')->sum(function ($item) {
-                    return (float) $item->payment ?? 0;
-                }),
-                'freelancerPaidAmount' => $items->where('status', 'paid')->sum(function ($item) {
-                    return (float) $item->payment ?? 0;
-                }),
+                'freelancer_total_payment' => $items->sum(fn($item) => (float) $item->payment ?? 0),
+                'freelancerPendingAmount' => $items->where('status', 'pending')->sum(fn($item) => (float) $item->payment ?? 0),
+                'freelancerPaidAmount' => $items->where('status', 'paid')->sum(fn($item) => (float) $item->payment ?? 0),
             ];
-        })->values();
+        })
+        ->filter() // drop the nulls (non-freelancers)
+        ->values();
 
-        return response()->json($grouped);
-    }
+    return response()->json($grouped);
+}
 }
