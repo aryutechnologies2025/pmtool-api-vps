@@ -76,7 +76,7 @@ class PaymentStatusController extends Controller
             $originalNameWithoutExtension = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
 
             // Generate a unique name for the file
-            $uniqueName = $originalNameWithoutExtension.'_'.time().'.'.$file->extension();
+            $uniqueName = $originalNameWithoutExtension . '_' . time() . '.' . $file->extension();
 
             $path = public_path('payment_screenshots');
 
@@ -263,13 +263,13 @@ class PaymentStatusController extends Controller
 
             // Already an array → filter empty values
             if (is_array($value)) {
-                $files = array_filter($value, fn ($v) => trim($v) !== '');
+                $files = array_filter($value, fn($v) => trim($v) !== '');
             }
             // JSON string → decode and filter
             elseif (is_string($value)) {
                 $decoded = json_decode($value, true);
                 if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                    $files = array_filter($decoded, fn ($v) => trim($v) !== '');
+                    $files = array_filter($decoded, fn($v) => trim($v) !== '');
                 } else {
                     // Single filename string → trim and wrap in array if not empty
                     $value = trim($value);
@@ -327,319 +327,319 @@ class PaymentStatusController extends Controller
         return response()->json(['error' => 'Payment details not found'], 404);
     }
 
-   public function update(Request $request, $id)
-{
-    $payment = PaymentStatusModel::find($id);
-    if (! $payment) {
-        return response()->json(['message' => 'Payment record not found.'], 404);
-    }
-
-    $oldPaymentStatus = $payment->payment_status;
-
-    $paymentDetails = $request->payment_details ?? [];
-    $latestPaymentType = null;
-    $latestPaymentAmount = null;
-    $latestId = null;
-
-    if (is_array($paymentDetails)) {
-        foreach ($paymentDetails as $detail) {
-            if (! empty($detail['payment_type'])) {
-                $latestId = $detail['id'] ?? null;
-                $latestPaymentType = $detail['payment_type'];
-                $latestPaymentAmount = $detail['payment'] ?? null;
-            }
-        }
-    }
-
-    $entryProcess = EntryProcessModel::find($request->project_id);
-    if (! $entryProcess) {
-        return response()->json(['message' => 'Project entry not found.'], 404);
-    }
-
-    // Get all payment details from the request payload
-    $paymentDetails = $request->payment_details ?? [];
-
-    // Calculate total from the UPDATED payment details in the request
-    $totalUpdatedPayment = 0;
-    $paymentIdsInRequest = [];
-
-    foreach ($paymentDetails as $detail) {
-        if (in_array($detail['payment_type'], ['advance_received', 'partial_payment_received', 'completed'])) {
-            $totalUpdatedPayment += ($detail['payment'] ?? 0);
-            
-            if (!empty($detail['id'])) {
-                $paymentIdsInRequest[] = $detail['id'];
-            }
-        }
-    }
-
-    // Get existing payments from database that are NOT being updated
-    $existingPaymentsTotal = PaymentDetails::where('payment_id', $id)
-        ->whereIn('payment_type', ['advance_received', 'partial_payment_received', 'completed'])
-        ->whereNotIn('id', $paymentIdsInRequest) // Exclude the ones being updated
-        ->sum('payment');
-
-    // Final total = existing payments (not updated) + updated payments from request
-    $finalAmount = $existingPaymentsTotal + $totalUpdatedPayment;
-
-    // Validate against budget
-    if ($finalAmount > $entryProcess->budget) {
-        return response()->json([
-            'message' => 'Payment amount is greater than the budget.',
-            'details' => [
-                'existing_payments' => $existingPaymentsTotal,
-                'updated_payments_total' => $totalUpdatedPayment,
-                'final_amount' => $finalAmount,
-                'budget' => $entryProcess->budget
-            ]
-        ], 400);
-    }
-
-    // Check if any payment type is 'completed' in the updated payload
-    $hasCompletedPayment = false;
-    foreach ($paymentDetails as $detail) {
-        if ($detail['payment_type'] === 'completed') {
-            $hasCompletedPayment = true;
-            break;
-        }
-    }
-
-    if ($hasCompletedPayment && $finalAmount != $entryProcess->budget) {
-        return response()->json([
-            'message' => 'Payment amount does not match the budget.',
-            'details' => [
-                'final_amount' => $finalAmount,
-                'required_budget' => $entryProcess->budget,
-                'difference' => $entryProcess->budget - $finalAmount
-            ]
-        ], 400);
-    }
-
-    function handleFileUpload($mixedArray, $additionalExistingFiles = [])
+    public function update(Request $request, $id)
     {
-        $existingFiles = [];
-        $filesToUpload = [];
-        $uploadedFiles = [];
+        $payment = PaymentStatusModel::find($id);
+        if (! $payment) {
+            return response()->json(['message' => 'Payment record not found.'], 404);
+        }
 
-        if (is_array($mixedArray)) {
-            foreach ($mixedArray as $item) {
-                if (is_string($item) && ! empty(trim($item))) {
-                    $existingFiles[] = trim($item);
-                } elseif ($item instanceof \Illuminate\Http\UploadedFile) {
-                    $filesToUpload[] = $item;
+        $oldPaymentStatus = $payment->payment_status;
+
+        $paymentDetails = $request->payment_details ?? [];
+        $latestPaymentType = null;
+        $latestPaymentAmount = null;
+        $latestId = null;
+
+        if (is_array($paymentDetails)) {
+            foreach ($paymentDetails as $detail) {
+                if (! empty($detail['payment_type'])) {
+                    $latestId = $detail['id'] ?? null;
+                    $latestPaymentType = $detail['payment_type'];
+                    $latestPaymentAmount = $detail['payment'] ?? null;
                 }
             }
         }
 
-        if (! empty($additionalExistingFiles)) {
-            if (is_array($additionalExistingFiles)) {
-                $existingFiles = array_merge($existingFiles, $additionalExistingFiles);
-            } elseif (is_string($additionalExistingFiles)) {
-                $decoded = json_decode($additionalExistingFiles, true);
-                if (is_array($decoded)) {
-                    $existingFiles = array_merge($existingFiles, $decoded);
+        $entryProcess = EntryProcessModel::find($request->project_id);
+        if (! $entryProcess) {
+            return response()->json(['message' => 'Project entry not found.'], 404);
+        }
+
+        // Get all payment details from the request payload
+        $paymentDetails = $request->payment_details ?? [];
+
+        // Calculate total from the UPDATED payment details in the request
+        $totalUpdatedPayment = 0;
+        $paymentIdsInRequest = [];
+
+        foreach ($paymentDetails as $detail) {
+            if (in_array($detail['payment_type'], ['advance_received', 'partial_payment_received', 'completed'])) {
+                $totalUpdatedPayment += ($detail['payment'] ?? 0);
+
+                if (!empty($detail['id'])) {
+                    $paymentIdsInRequest[] = $detail['id'];
                 }
             }
         }
 
-        if (! empty($filesToUpload)) {
-            foreach ($filesToUpload as $file) {
-                if ($file->isValid()) {
-                    $filename =
-                        pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                        .'_'.time().'_'.rand(1000, 9999)
-                        .'.'.$file->extension();
+        // Get existing payments from database that are NOT being updated
+        $existingPaymentsTotal = PaymentDetails::where('payment_id', $id)
+            ->whereIn('payment_type', ['advance_received', 'partial_payment_received', 'completed'])
+            ->whereNotIn('id', $paymentIdsInRequest) // Exclude the ones being updated
+            ->sum('payment');
 
-                    $path = public_path('payment_screenshots');
+        // Final total = existing payments (not updated) + updated payments from request
+        $finalAmount = $existingPaymentsTotal + $totalUpdatedPayment;
 
-                    if (! is_dir($path)) {
-                        mkdir($path, 0775, true);
+        // Validate against budget
+        if ($finalAmount > $entryProcess->budget) {
+            return response()->json([
+                'message' => 'Payment amount is greater than the budget.',
+                'details' => [
+                    'existing_payments' => $existingPaymentsTotal,
+                    'updated_payments_total' => $totalUpdatedPayment,
+                    'final_amount' => $finalAmount,
+                    'budget' => $entryProcess->budget
+                ]
+            ], 400);
+        }
+
+        // Check if any payment type is 'completed' in the updated payload
+        $hasCompletedPayment = false;
+        foreach ($paymentDetails as $detail) {
+            if ($detail['payment_type'] === 'completed') {
+                $hasCompletedPayment = true;
+                break;
+            }
+        }
+
+        if ($hasCompletedPayment && $finalAmount != $entryProcess->budget) {
+            return response()->json([
+                'message' => 'Payment amount does not match the budget.',
+                'details' => [
+                    'final_amount' => $finalAmount,
+                    'required_budget' => $entryProcess->budget,
+                    'difference' => $entryProcess->budget - $finalAmount
+                ]
+            ], 400);
+        }
+
+        function handleFileUpload($mixedArray, $additionalExistingFiles = [])
+        {
+            $existingFiles = [];
+            $filesToUpload = [];
+            $uploadedFiles = [];
+
+            if (is_array($mixedArray)) {
+                foreach ($mixedArray as $item) {
+                    if (is_string($item) && ! empty(trim($item))) {
+                        $existingFiles[] = trim($item);
+                    } elseif ($item instanceof \Illuminate\Http\UploadedFile) {
+                        $filesToUpload[] = $item;
+                    }
+                }
+            }
+
+            if (! empty($additionalExistingFiles)) {
+                if (is_array($additionalExistingFiles)) {
+                    $existingFiles = array_merge($existingFiles, $additionalExistingFiles);
+                } elseif (is_string($additionalExistingFiles)) {
+                    $decoded = json_decode($additionalExistingFiles, true);
+                    if (is_array($decoded)) {
+                        $existingFiles = array_merge($existingFiles, $decoded);
+                    }
+                }
+            }
+
+            if (! empty($filesToUpload)) {
+                foreach ($filesToUpload as $file) {
+                    if ($file->isValid()) {
+                        $filename =
+                            pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                            . '_' . time() . '_' . rand(1000, 9999)
+                            . '.' . $file->extension();
+
+                        $path = public_path('payment_screenshots');
+
+                        if (! is_dir($path)) {
+                            mkdir($path, 0775, true);
+                        }
+
+                        $file->move($path, $filename);
+                        $uploadedFiles[] = $filename;
+                    }
+                }
+            }
+
+            $allFiles = array_merge($existingFiles, $uploadedFiles);
+            $allFiles = array_values(array_unique(array_filter($allFiles)));
+
+            return $allFiles;
+        }
+
+        $payment->project_id = $request->project_id;
+        $payment->payment_status = $latestPaymentType ?? $request->payment_status;
+        $payment->discounts = $request->discount;
+        $payment->reference_number = $request->reference_number;
+        $payment->created_by = $request->created_by;
+
+        if ($request->hasFile('reference_number_file')) {
+            $remainingFiles = $request->existing_reference_files ?? [];
+            $files = handleFileUpload(
+                $request->file('reference_number_file'),
+                $remainingFiles
+            );
+
+            $payment->reference_number_file = ! empty($files) ? $files : null;
+        }
+
+        $payment->save();
+
+        if ($payment->payment_status !== $oldPaymentStatus) {
+            PaymentLogs::create([
+                'project_id' => $request->project_id,
+                'payment_id' => $payment->id,
+                'payment_status' => $request->payment_status,
+                'reference_number' => $request->reference_number,
+                'reference_number_file' => $payment->reference_number_file,
+                'created_by' => $request->created_by,
+                'created_date' => now(),
+            ]);
+        }
+
+        // Handle payment details with activity logging
+        if (is_array($paymentDetails)) {
+            $statusChanged = false;
+            $newPaymentStatus = null;
+            $activityLogged = false;
+
+            foreach ($paymentDetails as $index => $detail) {
+                if (empty($detail['payment_type'])) {
+                    return response()->json(['message' => 'Payment type is not selected.'], 400);
+                }
+
+                // Initialize $existingPayment as null
+                $existingPayment = null;
+
+                // Only try to find existing payment if 'id' exists in the detail
+                if (isset($detail['id']) && !empty($detail['id'])) {
+                    $existingPayment = PaymentDetails::where('payment_id', $payment->id)
+                        ->where('id', $detail['id'])
+                        ->first();
+                }
+
+                $mixedFilesArray = $detail['reference_number_file'] ?? [];
+                $additionalExistingFiles = $detail['existing_reference_files'] ?? [];
+                $finalFiles = handleFileUpload($mixedFilesArray, $additionalExistingFiles);
+
+                if ($existingPayment) {
+                    // Check if payment_type is actually changing
+                    if ($existingPayment->payment_type !== $detail['payment_type']) {
+                        $statusChanged = true;
+                        $newPaymentStatus = $detail['payment_type'];
                     }
 
-                    $file->move($path, $filename);
-                    $uploadedFiles[] = $filename;
-                }
-            }
-        }
-
-        $allFiles = array_merge($existingFiles, $uploadedFiles);
-        $allFiles = array_values(array_unique(array_filter($allFiles)));
-
-        return $allFiles;
-    }
-
-    $payment->project_id = $request->project_id;
-    $payment->payment_status = $latestPaymentType ?? $request->payment_status;
-    $payment->discounts = $request->discount;
-    $payment->reference_number = $request->reference_number;
-    $payment->created_by = $request->created_by;
-
-    if ($request->hasFile('reference_number_file')) {
-        $remainingFiles = $request->existing_reference_files ?? [];
-        $files = handleFileUpload(
-            $request->file('reference_number_file'),
-            $remainingFiles
-        );
-
-        $payment->reference_number_file = ! empty($files) ? $files : null;
-    }
-
-    $payment->save();
-
-    if ($payment->payment_status !== $oldPaymentStatus) {
-        PaymentLogs::create([
-            'project_id' => $request->project_id,
-            'payment_id' => $payment->id,
-            'payment_status' => $request->payment_status,
-            'reference_number' => $request->reference_number,
-            'reference_number_file' => $payment->reference_number_file,
-            'created_by' => $request->created_by,
-            'created_date' => now(),
-        ]);
-    }
-
-    // Handle payment details with activity logging
-    if (is_array($paymentDetails)) {
-        $statusChanged = false;
-        $newPaymentStatus = null;
-        $activityLogged = false;
-        
-        foreach ($paymentDetails as $index => $detail) {
-            if (empty($detail['payment_type'])) {
-                return response()->json(['message' => 'Payment type is not selected.'], 400);
-            }
-
-            // Initialize $existingPayment as null
-            $existingPayment = null;
-            
-            // Only try to find existing payment if 'id' exists in the detail
-            if (isset($detail['id']) && !empty($detail['id'])) {
-                $existingPayment = PaymentDetails::where('payment_id', $payment->id)
-                    ->where('id', $detail['id'])
-                    ->first();
-            }
-
-            $mixedFilesArray = $detail['reference_number_file'] ?? [];
-            $additionalExistingFiles = $detail['existing_reference_files'] ?? [];
-            $finalFiles = handleFileUpload($mixedFilesArray, $additionalExistingFiles);
-
-            if ($existingPayment) {
-                // Check if payment_type is actually changing
-                if ($existingPayment->payment_type !== $detail['payment_type']) {
+                    // Update existing payment
+                    $existingPayment->payment = $detail['payment'] ?? $existingPayment->payment;
+                    $existingPayment->payment_date = $detail['payment_date'] ?? $existingPayment->payment_date;
+                    $existingPayment->reference_number = $detail['reference_number'] ?? $existingPayment->reference_number;
+                    $existingPayment->payment_type = $detail['payment_type'] ?? $existingPayment->payment_type;
+                    $existingPayment->reference_number_file = !empty($finalFiles) ? $finalFiles : null;
+                    $existingPayment->save();
+                } else {
+                    // Creating new payment - this is a status change
                     $statusChanged = true;
                     $newPaymentStatus = $detail['payment_type'];
-                }
-                
-                // Update existing payment
-                $existingPayment->payment = $detail['payment'] ?? $existingPayment->payment;
-                $existingPayment->payment_date = $detail['payment_date'] ?? $existingPayment->payment_date;
-                $existingPayment->reference_number = $detail['reference_number'] ?? $existingPayment->reference_number;
-                $existingPayment->payment_type = $detail['payment_type'] ?? $existingPayment->payment_type;
-                $existingPayment->reference_number_file = !empty($finalFiles) ? $finalFiles : null;
-                $existingPayment->save();
-            } else {
-                // Creating new payment - this is a status change
-                $statusChanged = true;
-                $newPaymentStatus = $detail['payment_type'];
-                
-                PaymentDetails::create([
-                    'payment_id' => $payment->id,
-                    'payment' => $detail['payment'] ?? 0,
-                    'payment_type' => $detail['payment_type'],
-                    'payment_date' => $detail['payment_date'] ?? now(),
-                    'reference_number' => $detail['reference_number'] ?? null,
-                    'reference_number_file' => !empty($finalFiles) ? $finalFiles : null,
-                ]);
-            }
-        }
-        
-        // Only create activity if status actually changed
-        if ($statusChanged && $newPaymentStatus && !$activityLogged) {
-            $created = User::with('createdByUser')->find($request->created_by);
-            $employee = $created?->employee_name ?? 'Mohamed Ali';
-            $creator = $created?->createdByUser?->name ?? 'Admin';
-            
-            // Check for duplicate activities within last 60 seconds
-            $existingActivity = ProjectActivity::where('project_id', $request->project_id)
-                ->where('created_by', $request->created_by)
-                ->where('activity', "Payment marked as {$newPaymentStatus} by {$employee} ({$creator})")
-                ->where('created_date', '>=', now()->subSeconds(60))
-                ->exists();
 
-            if (!$existingActivity) {
-                ProjectActivity::create([
-                    'project_id' => $request->project_id,
-                    'activity' => "Payment marked as {$newPaymentStatus} by {$employee} ({$creator})",
-                    'created_by' => $request->created_by,
-                    'role' => $creator,
-                    'created_date' => now(),
-                ]);
-                $activityLogged = true;
-            }
-        }
-    }
-
-    // Handle employee payments
-    $employeePaymentTypes = ['writerPay', 'reviewerPay', 'statisticanPay', 'journalPay'];
-
-    foreach ($employeePaymentTypes as $type) {
-        $paymentData = $request->input($type);
-
-        if (! empty($paymentData) && is_array($paymentData)) {
-            foreach ($paymentData as $user) {
-                if (! is_array($user)) {
-                    continue;
-                }
-
-                $employeeFieldMap = [
-                    'writerPay' => ['id' => 'id', 'id_field' => 'writerName', 'payment_field' => 'paymentAmount', 'date_field' => 'paymentDate', 'status_field' => 'paymentStatus', 'db_type' => 'writer'],
-                    'reviewerPay' => ['id' => 'id', 'id_field' => 'reviewerName', 'payment_field' => 'reviewerPayment', 'date_field' => 'reviewerPaymentDate', 'status_field' => 'reviewerPaymentStatus', 'db_type' => 'reviewer'],
-                    'statisticanPay' => ['id' => 'id', 'id_field' => 'statisticanName', 'payment_field' => 'statisticanPayment', 'date_field' => 'statisticanPaymentDate', 'status_field' => 'statisticanPaymentStatus', 'db_type' => 'statistican'],
-                    'journalPay' => ['id' => 'id', 'id_field' => 'journalName', 'payment_field' => 'journalPayment', 'date_field' => 'journalPaymentDate', 'status_field' => 'journalPaymentStatus', 'db_type' => 'publication_manager'],
-                ];
-
-                $mapping = $employeeFieldMap[$type];
-                $employee_id = $user[$mapping['id_field']] ?? null;
-
-                if (! $employee_id) {
-                    continue;
-                }
-
-                $paymentEpD = EmployeePaymentDetails::where('project_id', $request->project_id)
-                    ->where('id', $user[$mapping['id']] ?? 0)
-                    ->first();
-
-                if ($paymentEpD) {
-                    $paymentEpD->payment = $user[$mapping['payment_field']] ?? 0;
-                    $paymentEpD->payment_date = $user[$mapping['date_field']] ?? null;
-                    $paymentEpD->status = $user[$mapping['status_field']] ?? null;
-                    $paymentEpD->type = $mapping['db_type'];
-                    $paymentEpD->created_date = now();
-                    $paymentEpD->save();
-                } else {
-                    EmployeePaymentDetails::create([
-                        'project_id' => $request->project_id,
+                    PaymentDetails::create([
                         'payment_id' => $payment->id,
-                        'employee_id' => $employee_id,
-                        'payment' => $user[$mapping['payment_field']] ?? 0,
-                        'payment_date' => $user[$mapping['date_field']] ?? null,
-                        'status' => $user[$mapping['status_field']] ?? null,
-                        'type' => $mapping['db_type'],
-                        'created_date' => now(),
+                        'payment' => $detail['payment'] ?? 0,
+                        'payment_type' => $detail['payment_type'],
+                        'payment_date' => $detail['payment_date'] ?? now(),
+                        'reference_number' => $detail['reference_number'] ?? null,
+                        'reference_number_file' => !empty($finalFiles) ? $finalFiles : null,
                     ]);
                 }
             }
-        }
-    }
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Payment successfully updated.',
-        'payment_id' => $payment->id,
-        'details' => $payment->toArray(),
-        'payment_details' => $paymentDetails,
-    ]);
-}
+            // Only create activity if status actually changed
+            if ($statusChanged && $newPaymentStatus && !$activityLogged) {
+                $created = User::with('createdByUser')->find($request->created_by);
+                $employee = $created?->employee_name ?? 'Mohamed Ali';
+                $creator = $created?->createdByUser?->name ?? 'Admin';
+
+                // Check for duplicate activities within last 60 seconds
+                $existingActivity = ProjectActivity::where('project_id', $request->project_id)
+                    ->where('created_by', $request->created_by)
+                    ->where('activity', "Payment marked as {$newPaymentStatus} by {$employee} ({$creator})")
+                    ->where('created_date', '>=', now()->subSeconds(60))
+                    ->exists();
+
+                if (!$existingActivity) {
+                    ProjectActivity::create([
+                        'project_id' => $request->project_id,
+                        'activity' => "Payment marked as {$newPaymentStatus} by {$employee} ({$creator})",
+                        'created_by' => $request->created_by,
+                        'role' => $creator,
+                        'created_date' => now(),
+                    ]);
+                    $activityLogged = true;
+                }
+            }
+        }
+
+        // Handle employee payments
+        $employeePaymentTypes = ['writerPay', 'reviewerPay', 'statisticanPay', 'journalPay'];
+
+        foreach ($employeePaymentTypes as $type) {
+            $paymentData = $request->input($type);
+
+            if (! empty($paymentData) && is_array($paymentData)) {
+                foreach ($paymentData as $user) {
+                    if (! is_array($user)) {
+                        continue;
+                    }
+
+                    $employeeFieldMap = [
+                        'writerPay' => ['id' => 'id', 'id_field' => 'writerName', 'payment_field' => 'paymentAmount', 'date_field' => 'paymentDate', 'status_field' => 'paymentStatus', 'db_type' => 'writer'],
+                        'reviewerPay' => ['id' => 'id', 'id_field' => 'reviewerName', 'payment_field' => 'reviewerPayment', 'date_field' => 'reviewerPaymentDate', 'status_field' => 'reviewerPaymentStatus', 'db_type' => 'reviewer'],
+                        'statisticanPay' => ['id' => 'id', 'id_field' => 'statisticanName', 'payment_field' => 'statisticanPayment', 'date_field' => 'statisticanPaymentDate', 'status_field' => 'statisticanPaymentStatus', 'db_type' => 'statistican'],
+                        'journalPay' => ['id' => 'id', 'id_field' => 'journalName', 'payment_field' => 'journalPayment', 'date_field' => 'journalPaymentDate', 'status_field' => 'journalPaymentStatus', 'db_type' => 'publication_manager'],
+                    ];
+
+                    $mapping = $employeeFieldMap[$type];
+                    $employee_id = $user[$mapping['id_field']] ?? null;
+
+                    if (! $employee_id) {
+                        continue;
+                    }
+
+                    $paymentEpD = EmployeePaymentDetails::where('project_id', $request->project_id)
+                        ->where('id', $user[$mapping['id']] ?? 0)
+                        ->first();
+
+                    if ($paymentEpD) {
+                        $paymentEpD->payment = $user[$mapping['payment_field']] ?? 0;
+                        $paymentEpD->payment_date = $user[$mapping['date_field']] ?? null;
+                        $paymentEpD->status = $user[$mapping['status_field']] ?? null;
+                        $paymentEpD->type = $mapping['db_type'];
+                        $paymentEpD->created_date = now();
+                        $paymentEpD->save();
+                    } else {
+                        EmployeePaymentDetails::create([
+                            'project_id' => $request->project_id,
+                            'payment_id' => $payment->id,
+                            'employee_id' => $employee_id,
+                            'payment' => $user[$mapping['payment_field']] ?? 0,
+                            'payment_date' => $user[$mapping['date_field']] ?? null,
+                            'status' => $user[$mapping['status_field']] ?? null,
+                            'type' => $mapping['db_type'],
+                            'created_date' => now(),
+                        ]);
+                    }
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment successfully updated.',
+            'payment_id' => $payment->id,
+            'details' => $payment->toArray(),
+            'payment_details' => $paymentDetails,
+        ]);
+    }
     //    public function update(Request $request, $id)
     // {
     //     $payment = PaymentStatusModel::find($id);
@@ -974,7 +974,6 @@ class PaymentStatusController extends Controller
             return response()->json([
                 'message' => 'Payment deleted successfully',
             ]);
-
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -1014,7 +1013,7 @@ class PaymentStatusController extends Controller
             $originalNameWithoutExtension = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
 
             // Generate a unique name for the file
-            $uniqueName = $originalNameWithoutExtension.'_'.time().'.'.$file->extension();
+            $uniqueName = $originalNameWithoutExtension . '_' . time() . '.' . $file->extension();
 
             $path = public_path('payment_screenshots');
 
@@ -1164,7 +1163,7 @@ class PaymentStatusController extends Controller
 
     public function download($filename)
     {
-        $filePath = public_path('uploads/'.$filename);
+        $filePath = public_path('uploads/' . $filename);
 
         // Check if the file exists
         if (! file_exists($filePath)) {
@@ -1181,239 +1180,239 @@ class PaymentStatusController extends Controller
         return $response;
     }
 
-   public function getPaymentList(Request $request)
-{
-    // --- Status counts/ids (query once, reuse) ---
-    $paymentPendingIds = PaymentStatusModel::where('payment_status', 'final_payment_pending')
-        ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0);
-        })
-        ->pluck('project_id')
-        ->toArray();
-    $paymentPendingCount = count($paymentPendingIds);
+    public function getPaymentList(Request $request)
+    {
+        // --- Status counts/ids (query once, reuse) ---
+        $paymentPendingIds = PaymentStatusModel::where('payment_status', 'final_payment_pending')
+            ->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0);
+            })
+            ->pluck('project_id')
+            ->toArray();
+        $paymentPendingCount = count($paymentPendingIds);
 
-    $advancePendingIds = PaymentStatusModel::where('payment_status', 'advance_pending')
-        ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
-        })
-        ->pluck('project_id')
-        ->toArray();
-    $advancePendingCount = count($advancePendingIds);
+        $advancePendingIds = PaymentStatusModel::where('payment_status', 'advance_pending')
+            ->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0)
+                    ->where('process_status', '!=', 'completed');
+            })
+            ->pluck('project_id')
+            ->toArray();
+        $advancePendingCount = count($advancePendingIds);
 
-    $partialPaymentPendingIds = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
-        ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
-        })
-        ->pluck('project_id')
-        ->toArray();
-    $partialPaymentPendingCount = count($partialPaymentPendingIds);
+        $partialPaymentPendingIds = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
+            ->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0)
+                    ->where('process_status', '!=', 'completed');
+            })
+            ->pluck('project_id')
+            ->toArray();
+        $partialPaymentPendingCount = count($partialPaymentPendingIds);
 
-    // --- Full records needed for sums ---
-    $paymentsPending = PaymentStatusModel::where('payment_status', 'final_payment_pending')
-        ->with('paymentData', 'paymentLData')
-        ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0);
-        })
-        ->get();
+        // --- Full records needed for sums ---
+        $paymentsPending = PaymentStatusModel::where('payment_status', 'final_payment_pending')
+            ->with('paymentData', 'paymentLData')
+            ->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0);
+            })
+            ->get();
 
-    $advancePending = PaymentStatusModel::where('payment_status', 'advance_pending')
-        ->with('paymentData', 'paymentLData')
-        ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
-        })
-        ->get();
+        $advancePending = PaymentStatusModel::where('payment_status', 'advance_pending')
+            ->with('paymentData', 'paymentLData')
+            ->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0)
+                    ->where('process_status', '!=', 'completed');
+            })
+            ->get();
 
-    $partialPaymentPending = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
-        ->with('paymentData')
-        ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
-        })
-        ->whereHas('paymentData', function ($query) {
-            $query->where('payment_type', 'partial_payment_pending');
-        })
-        ->get();
+        $partialPaymentPending = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
+            ->with('paymentData')
+            ->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0)
+                    ->where('process_status', '!=', 'completed');
+            })
+            ->whereHas('paymentData', function ($query) {
+                $query->where('payment_type', 'partial_payment_pending');
+            })
+            ->get();
 
-    $completedPayments = PaymentStatusModel::where('is_verify', 1)
-        ->with('paymentData', 'paymentLData')
-        ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0);
-        })
-        ->get();
-    $completedPaymentsIds = $completedPayments->pluck('project_id')->toArray();
-    $completedPaymentsCount = $completedPayments->count();
+        $completedPayments = PaymentStatusModel::where('is_verify', 1)
+            ->with('paymentData', 'paymentLData')
+            ->whereHas('projectData', function ($query) {
+                $query->where('is_deleted', 0);
+            })
+            ->get();
+        $completedPaymentsIds = $completedPayments->pluck('project_id')->toArray();
+        $completedPaymentsCount = $completedPayments->count();
 
-    // --- Sums ---
-    $totalPaymentPending = 0;
-    $totalAdvancePending = 0;
-    $totalPartialPaymentPending = 0;
-    $totalCompletedPayment = 0;
+        // --- Sums ---
+        $totalPaymentPending = 0;
+        $totalAdvancePending = 0;
+        $totalPartialPaymentPending = 0;
+        $totalCompletedPayment = 0;
 
-    foreach ($paymentsPending as $payment) {
-        $totalPaymentPending += $payment->paymentData->where('payment_type', 'final_payment_pending')->sum('payment');
-    }
+        foreach ($paymentsPending as $payment) {
+            $totalPaymentPending += $payment->paymentData->where('payment_type', 'final_payment_pending')->sum('payment');
+        }
 
-    foreach ($advancePending as $payment) {
-        $totalAdvancePending += $payment->paymentData->where('payment_type', 'advance_pending')->sum('payment');
-    }
+        foreach ($advancePending as $payment) {
+            $totalAdvancePending += $payment->paymentData->where('payment_type', 'advance_pending')->sum('payment');
+        }
 
-    foreach ($partialPaymentPending as $payment) {
-        $totalPartialPaymentPending += $payment->paymentData->where('payment_type', 'partial_payment_pending')->sum('payment');
-    }
+        foreach ($partialPaymentPending as $payment) {
+            $totalPartialPaymentPending += $payment->paymentData->where('payment_type', 'partial_payment_pending')->sum('payment');
+        }
 
-    foreach ($completedPayments as $payment) {
-        $totalCompletedPayment += $payment->paymentData
-            ->whereIn('payment_type', ['partial_payment_pending', 'final_payment_pending', 'advance_pending', 'completed'])
-            ->sum('payment');
-    }
+        foreach ($completedPayments as $payment) {
+            $totalCompletedPayment += $payment->paymentData
+                ->whereIn('payment_type', ['partial_payment_pending', 'final_payment_pending', 'advance_pending', 'completed'])
+                ->sum('payment');
+        }
 
-    // --- Projects list ---
-    $projects = EntryProcessModel::with(['paymentProcess.paymentLog'])
-        ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'client_name', 'writer', 'reviewer', 'statistican')
-        ->where('is_deleted', 0)
-        ->get();
+        // --- Projects list ---
+        $projects = EntryProcessModel::with(['paymentProcess.paymentLog'])
+            ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'client_name', 'writer', 'reviewer', 'statistican')
+            ->where('is_deleted', 0)
+            ->get();
 
-    $paymentProject = PaymentStatusModel::with(['paymentWEmpData', 'paymentREmpData', 'paymentSEmpData', 'projectData'])->get();
+        $paymentProject = PaymentStatusModel::with(['paymentWEmpData', 'paymentREmpData', 'paymentSEmpData', 'projectData'])->get();
 
-    // --- Precompute project counts per employee ONCE (was previously run per row = N+1) ---
-    $activeProjectIds = PaymentStatusModel::pluck('project_id')->toArray();
+        // --- Precompute project counts per employee ONCE (was previously run per row = N+1) ---
+        $activeProjectIds = PaymentStatusModel::pluck('project_id')->toArray();
 
-    $writerProjectCounts = EntryProcessModel::select('writer', DB::raw('count(*) as cnt'))
-        ->where('is_deleted', 0)
-        ->whereIn('id', $activeProjectIds)
-        ->groupBy('writer')
-        ->pluck('cnt', 'writer');
+        $writerProjectCounts = EntryProcessModel::select('writer', DB::raw('count(*) as cnt'))
+            ->where('is_deleted', 0)
+            ->whereIn('id', $activeProjectIds)
+            ->groupBy('writer')
+            ->pluck('cnt', 'writer');
 
-    $reviewerProjectCounts = EntryProcessModel::select('reviewer', DB::raw('count(*) as cnt'))
-        ->where('is_deleted', 0)
-        ->whereIn('id', $activeProjectIds)
-        ->groupBy('reviewer')
-        ->pluck('cnt', 'reviewer');
+        $reviewerProjectCounts = EntryProcessModel::select('reviewer', DB::raw('count(*) as cnt'))
+            ->where('is_deleted', 0)
+            ->whereIn('id', $activeProjectIds)
+            ->groupBy('reviewer')
+            ->pluck('cnt', 'reviewer');
 
-    $statisticanProjectCounts = EntryProcessModel::select('statistican', DB::raw('count(*) as cnt'))
-        ->where('is_deleted', 0)
-        ->whereIn('id', $activeProjectIds)
-        ->groupBy('statistican')
-        ->pluck('cnt', 'statistican');
+        $statisticanProjectCounts = EntryProcessModel::select('statistican', DB::raw('count(*) as cnt'))
+            ->where('is_deleted', 0)
+            ->whereIn('id', $activeProjectIds)
+            ->groupBy('statistican')
+            ->pluck('cnt', 'statistican');
 
-    $paymentProjectDetails = $paymentProject->flatMap(function ($project) use ($writerProjectCounts, $reviewerProjectCounts, $statisticanProjectCounts) {
-        $paymentData = [];
+        $paymentProjectDetails = $paymentProject->flatMap(function ($project) use ($writerProjectCounts, $reviewerProjectCounts, $statisticanProjectCounts) {
+            $paymentData = [];
 
-        // Writer Payment
-        if (! empty($project->paymentWEmpData->writer_payment) && isset($project->paymentWEmpData->id)) {
-            $paymentData[] = [
-                'total_project' => $writerProjectCounts[$project->paymentWEmpData->id] ?? 0,
-                'id' => $project->paymentWEmpData->id,
-                'type' => 'writer',
-                'totalname' => $project->paymentWEmpData->employee_name,
-                'totalproject' => 0,
-                'payment' => $project->paymentWEmpData->writer_payment,
-                'payment_status' => $project->paymentWEmpData->writer_payment_status,
-                'payment_date' => $project->paymentWEmpData->writer_payment_date,
+            // Writer Payment
+            if (! empty($project->paymentWEmpData->writer_payment) && isset($project->paymentWEmpData->id)) {
+                $paymentData[] = [
+                    'total_project' => $writerProjectCounts[$project->paymentWEmpData->id] ?? 0,
+                    'id' => $project->paymentWEmpData->id,
+                    'type' => 'writer',
+                    'totalname' => $project->paymentWEmpData->employee_name,
+                    'totalproject' => 0,
+                    'payment' => $project->paymentWEmpData->writer_payment,
+                    'payment_status' => $project->paymentWEmpData->writer_payment_status,
+                    'payment_date' => $project->paymentWEmpData->writer_payment_date,
+                ];
+            }
+
+            // Reviewer Payment
+            if (! empty($project->paymentREmpData->reviewer_payment) && isset($project->paymentREmpData->id)) {
+                $paymentData[] = [
+                    'total_project' => $reviewerProjectCounts[$project->paymentREmpData->id] ?? 0,
+                    'id' => $project->paymentREmpData->id,
+                    'type' => 'reviewer',
+                    'totalname' => $project->paymentREmpData->employee_name,
+                    'totalproject' => 0,
+                    'payment' => $project->paymentREmpData->reviewer_payment,
+                    'payment_status' => $project->paymentREmpData->reviewer_payment_status,
+                    'payment_date' => $project->paymentREmpData->reviewer_payment_date,
+                ];
+            }
+
+            // Statistician Payment
+            if (! empty($project->paymentSEmpData->statistican_payment) && isset($project->paymentSEmpData->id)) {
+                $paymentData[] = [
+                    'total_project' => $statisticanProjectCounts[$project->paymentSEmpData->id] ?? 0,
+                    'id' => $project->paymentSEmpData->id,
+                    'type' => 'statistican',
+                    'totalname' => $project->paymentSEmpData->employee_name,
+                    'totalproject' => 0,
+                    'payment' => $project->paymentSEmpData->statistican_payment,
+                    'payment_status' => $project->paymentSEmpData->statistican_payment_status,
+                    'payment_date' => $project->paymentSEmpData->statistican_payment_date,
+                ];
+            }
+
+            return $paymentData;
+        })->groupBy('id')->map(function ($items) {
+            return [
+                'id' => $items->first()['id'],
+                'type' => $items->first()['type'],
+                'totalname' => $items->first()['totalname'],
+                'total_project' => $items->first()['total_project'],
+                'totalpayment' => $items->sum('payment'),
+                'payment_status' => $items->first()['payment_status'],
+                'payment_date' => $items->first()['payment_date'],
             ];
+        })->values();
+
+        // --- Precompute payment details totals + latest logs (was N+1: 2 queries per project) ---
+        $paymentIds = $projects->pluck('paymentProcess.id')->filter()->unique()->values();
+
+        $paymentDetailsTotals = PaymentDetails::whereIn('payment_id', $paymentIds)
+            ->where('is_deleted', 0)
+            ->select('payment_id', DB::raw('SUM(payment) as total'))
+            ->groupBy('payment_id')
+            ->pluck('total', 'payment_id');
+
+        $latestLogsByKey = PaymentLogs::whereIn('payment_id', $paymentIds)
+            ->orderByDesc('created_date')
+            ->get()
+            ->groupBy(function ($log) {
+                return $log->project_id . '|' . $log->payment_id . '|' . $log->payment_status;
+            })
+            ->map->first();
+
+        foreach ($projects as $project) {
+            if ($project->paymentProcess) {
+                $payment_id = $project->paymentProcess->id;
+                $project_id = $project->paymentProcess->project_id;
+                $paymentstatus = $project->paymentProcess->payment_status;
+
+                $project->paymentstatus = $paymentstatus;
+                $project->is_verify = $project->paymentProcess->is_verify;
+                $project->payment_id = $payment_id;
+                $project->total_cost = $paymentDetailsTotals[$payment_id] ?? '-';
+
+                $logKey = $project_id . '|' . $payment_id . '|' . $paymentstatus;
+                $log = $latestLogsByKey[$logKey] ?? null;
+                $project->paymentdate = ($log && $log->created_date) ? $log->created_date : '-';
+            } else {
+                $project->paymentdate = '-';
+                $project->paymentstatus = '-';
+                $project->total_cost = '-';
+                $project->is_verify = '-';
+                $project->payment_id = '-';
+            }
         }
 
-        // Reviewer Payment
-        if (! empty($project->paymentREmpData->reviewer_payment) && isset($project->paymentREmpData->id)) {
-            $paymentData[] = [
-                'total_project' => $reviewerProjectCounts[$project->paymentREmpData->id] ?? 0,
-                'id' => $project->paymentREmpData->id,
-                'type' => 'reviewer',
-                'totalname' => $project->paymentREmpData->employee_name,
-                'totalproject' => 0,
-                'payment' => $project->paymentREmpData->reviewer_payment,
-                'payment_status' => $project->paymentREmpData->reviewer_payment_status,
-                'payment_date' => $project->paymentREmpData->reviewer_payment_date,
-            ];
-        }
-
-        // Statistician Payment
-        if (! empty($project->paymentSEmpData->statistican_payment) && isset($project->paymentSEmpData->id)) {
-            $paymentData[] = [
-                'total_project' => $statisticanProjectCounts[$project->paymentSEmpData->id] ?? 0,
-                'id' => $project->paymentSEmpData->id,
-                'type' => 'statistican',
-                'totalname' => $project->paymentSEmpData->employee_name,
-                'totalproject' => 0,
-                'payment' => $project->paymentSEmpData->statistican_payment,
-                'payment_status' => $project->paymentSEmpData->statistican_payment_status,
-                'payment_date' => $project->paymentSEmpData->statistican_payment_date,
-            ];
-        }
-
-        return $paymentData;
-    })->groupBy('id')->map(function ($items) {
-        return [
-            'id' => $items->first()['id'],
-            'type' => $items->first()['type'],
-            'totalname' => $items->first()['totalname'],
-            'total_project' => $items->first()['total_project'],
-            'totalpayment' => $items->sum('payment'),
-            'payment_status' => $items->first()['payment_status'],
-            'payment_date' => $items->first()['payment_date'],
-        ];
-    })->values();
-
-    // --- Precompute payment details totals + latest logs (was N+1: 2 queries per project) ---
-    $paymentIds = $projects->pluck('paymentProcess.id')->filter()->unique()->values();
-
-    $paymentDetailsTotals = PaymentDetails::whereIn('payment_id', $paymentIds)
-        ->where('is_deleted', 0)
-        ->select('payment_id', DB::raw('SUM(payment) as total'))
-        ->groupBy('payment_id')
-        ->pluck('total', 'payment_id');
-
-    $latestLogsByKey = PaymentLogs::whereIn('payment_id', $paymentIds)
-        ->orderByDesc('created_date')
-        ->get()
-        ->groupBy(function ($log) {
-            return $log->project_id . '|' . $log->payment_id . '|' . $log->payment_status;
-        })
-        ->map->first();
-
-    foreach ($projects as $project) {
-        if ($project->paymentProcess) {
-            $payment_id = $project->paymentProcess->id;
-            $project_id = $project->paymentProcess->project_id;
-            $paymentstatus = $project->paymentProcess->payment_status;
-
-            $project->paymentstatus = $paymentstatus;
-            $project->is_verify = $project->paymentProcess->is_verify;
-            $project->payment_id = $payment_id;
-            $project->total_cost = $paymentDetailsTotals[$payment_id] ?? '-';
-
-            $logKey = $project_id . '|' . $payment_id . '|' . $paymentstatus;
-            $log = $latestLogsByKey[$logKey] ?? null;
-            $project->paymentdate = ($log && $log->created_date) ? $log->created_date : '-';
-        } else {
-            $project->paymentdate = '-';
-            $project->paymentstatus = '-';
-            $project->total_cost = '-';
-            $project->is_verify = '-';
-            $project->payment_id = '-';
-        }
+        return response()->json([
+            'totalPaymentPendingCount' => $paymentPendingCount,
+            'totalAdvancePendingCount' => $advancePendingCount,
+            'totalPartialPaymentPendingCount' => $partialPaymentPendingCount,
+            'totalPaymentPending' => $totalPaymentPending,
+            'totalAdvancePending' => $totalAdvancePending,
+            'totalPartialPaymentPending' => $totalPartialPaymentPending,
+            'totalCompletedPaymentCount' => $completedPaymentsCount,
+            'totalCompletedPayment' => $totalCompletedPayment,
+            'projects' => $projects,
+            'paymentProjectDetails' => $paymentProjectDetails,
+            'advancePendingIds' => $advancePendingIds,
+            'completedPaymentsIds' => $completedPaymentsIds,
+            'partialPaymentPendingIds' => $partialPaymentPendingIds,
+            'paymentPendingIds' => $paymentPendingIds,
+        ]);
     }
-
-    return response()->json([
-        'totalPaymentPendingCount' => $paymentPendingCount,
-        'totalAdvancePendingCount' => $advancePendingCount,
-        'totalPartialPaymentPendingCount' => $partialPaymentPendingCount,
-        'totalPaymentPending' => $totalPaymentPending,
-        'totalAdvancePending' => $totalAdvancePending,
-        'totalPartialPaymentPending' => $totalPartialPaymentPending,
-        'totalCompletedPaymentCount' => $completedPaymentsCount,
-        'totalCompletedPayment' => $totalCompletedPayment,
-        'projects' => $projects,
-        'paymentProjectDetails' => $paymentProjectDetails,
-        'advancePendingIds' => $advancePendingIds,
-        'completedPaymentsIds' => $completedPaymentsIds,
-        'partialPaymentPendingIds' => $partialPaymentPendingIds,
-        'paymentPendingIds' => $paymentPendingIds,
-    ]);
-}
 
     public function statusChange(Request $request)
     {
@@ -1520,19 +1519,31 @@ class PaymentStatusController extends Controller
 
     public function getFreelancerDetails()
     {
-
         $people = People::where('employee_type', 'freelancers')->get();
 
-        // $totalProjectsFreelancer = People::select('id', 'position', 'employee_name', 'employee_type')
-        // ->where('employee_type', '=', 'freelancers')
-        // ->get();
-
-        $freelancerDetails = EmployeePaymentDetails::with(['UserDateF'])
+        $freelancerDetails = EmployeePaymentDetails::with(['EmployeeAny'])
             ->where('type', '!=', 'publication_manager')
             ->get();
 
         $grouped = $freelancerDetails->groupBy('employee_id')->map(function ($items, $employeeId) {
-            $totalProjectsFreelancer = ProjectAssignDetails::where('assign_user', $employeeId)->where('status', '!=', 'rejected')->count();
+
+            // Skip/guard bad employee_id values (blank or non-numeric)
+            if (!is_numeric($employeeId)) {
+                return [
+                    'freelancer_id' => $employeeId,
+                    'freelancer_name' => 'Unknown / Invalid ID',
+                    'freelancer_project_count' => 0,
+                    'freelancer_project_id' => [],
+                    'freelancer_total_payment' => $items->sum(fn($item) => (float) $item->payment ?? 0),
+                    'freelancerPendingAmount' => $items->where('status', 'pending')->sum(fn($item) => (float) $item->payment ?? 0),
+                    'freelancerPaidAmount' => $items->where('status', 'paid')->sum(fn($item) => (float) $item->payment ?? 0),
+                ];
+            }
+
+            $totalProjectsFreelancer = ProjectAssignDetails::where('assign_user', $employeeId)
+                ->where('status', '!=', 'rejected')
+                ->count();
+
             $totalProjectsFreelancers = ProjectAssignDetails::where('assign_user', $employeeId)
                 ->where('status', '!=', 'rejected')
                 ->select('project_id')
@@ -1540,7 +1551,7 @@ class PaymentStatusController extends Controller
 
             return [
                 'freelancer_id' => $employeeId,
-                'freelancer_name' => optional($items->first()->UserDateF)->employee_name,
+                'freelancer_name' => optional($items->first()->EmployeeAny)->employee_name ?? 'N/A',
                 'freelancer_project_count' => $totalProjectsFreelancer,
                 'freelancer_project_id' => $totalProjectsFreelancers,
                 'freelancer_total_payment' => $items->sum(function ($item) {
