@@ -9829,9 +9829,21 @@ class EntryProcessController extends Controller
                 $query->pluck('status'); // Plucking the status from the 'writerData' relationship
             }]);
 
+            // if (! empty($process_status)) {
+            //     $totalProjectsQuery->where('process_status', $process_status);
+            // }
             if (! empty($process_status)) {
-                $totalProjectsQuery->where('process_status', $process_status);
+                $processStatuses = is_array($process_status)
+                    ? $process_status
+                    : explode(',', $process_status);
+
+                $processStatuses = array_filter(array_map('trim', $processStatuses));
+
+                if (! empty($processStatuses)) {
+                    $totalProjectsQuery->whereIn('process_status', $processStatuses);
+                }
             }
+
 
             if (! empty($journal_status)) {
                 $totalProjectsQuery->whereHas('journalData', function ($query) use ($journal_status) {

@@ -961,6 +961,8 @@ class ReportsController extends Controller
     }
 
 
+
+
     public function projectPending(Request $request)
     {
         $fromDate = $request->query('from_date');
@@ -1023,10 +1025,12 @@ class ReportsController extends Controller
             }
         }
 
+        // CHANGED: added with('projectData') so we can read type_of_work from the relation
         $notAssigned_tc_count = ProjectAssignDetails::where('type', 'team_coordinator')
             ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
             ->where('status', 'completed')
             ->whereNotIn('status', ['need_support'])
+            ->with('projectData') // ADDED
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0)
                     ->where('process_status', '!=', 'completed')
@@ -1045,8 +1049,7 @@ class ReportsController extends Controller
         $notAssigned_count = $notAssigned_tc_count->count();
         $notAssigned_by_type_of_work = array_fill_keys($type_of_work, 0);
         foreach ($notAssigned_tc_count as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED: was EntryProcessModel::where('id', $item->project_id)->first()
             if (array_key_exists($key, $notAssigned_by_type_of_work)) {
                 $notAssigned_by_type_of_work[$key]++;
             } else {
@@ -1125,6 +1128,7 @@ class ReportsController extends Controller
         }
 
         // SME entries
+        // CHANGED: added with('projectData') for consistency (already using ->with('projectData') below via relation load)
         $sme_to_list = ProjectAssignDetails::with('projectData')
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0)
@@ -1154,14 +1158,10 @@ class ReportsController extends Controller
             ->unique('project_id')
             ->values();
 
+        // CHANGED: pull type_of_work from the eager-loaded projectData relation instead of a per-row query
         $tc_merged = $pm_to_list->merge(
             $sme_to_list->map(function ($item) {
-                $ep = EntryProcessModel::where('project_id', $item->project_id)->first();
-                if ($ep) {
-                    $item->type_of_work = $ep->type_of_work;
-                } else {
-                    $item->type_of_work = '';
-                }
+                $item->type_of_work = $item->projectData->type_of_work ?? ''; // CHANGED
                 return $item;
             })
         );
@@ -1180,9 +1180,11 @@ class ReportsController extends Controller
 
         // Statistics
         $statisticsStatus = ['to_do', 'client_review', 'correction'];
+        // CHANGED: added with('projectData')
         $pending_statistics = ProjectAssignDetails::where('type', 'statistican')
             ->whereIn('status', $statisticsStatus)
             ->where('status', '!=', 'completed')
+            ->with('projectData') // ADDED
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0)
                     ->where('process_status', '!=', 'completed');
@@ -1190,11 +1192,12 @@ class ReportsController extends Controller
             ->get();
         $statistican_count = $pending_statistics->count();
         $statistics_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $statistics_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($pending_statistics as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $statistics_by_type_of_work)) {
                 $statistics_by_type_of_work[$key]++;
+                $statistics_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $statistics_by_type_of_work[''] = ($statistics_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1202,9 +1205,11 @@ class ReportsController extends Controller
 
         // Writer
         $writerStatus = ['to_do', 'plag_correction', 'correction'];
+        // CHANGED: added with('projectData')
         $pending_writer = ProjectAssignDetails::where('type', 'writer')
             ->whereIn('status', $writerStatus)
             ->where('status', '!=', 'completed')
+            ->with('projectData') // ADDED
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0)
                     ->where('process_status', '!=', 'completed');
@@ -1214,19 +1219,22 @@ class ReportsController extends Controller
         $writer_count = $pending_writer->count();
 
         $writer_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $writer_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($pending_writer as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $writer_by_type_of_work)) {
                 $writer_by_type_of_work[$key]++;
+                $writer_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $writer_by_type_of_work[''] = ($writer_by_type_of_work[''] ?? 0) + 1;
             }
         }
 
         // Reviewer
+        // CHANGED: added with('projectData')
         $pending_reviewer = ProjectAssignDetails::where('type', 'reviewer')
             ->where('status', '!=', 'completed')
+            ->with('projectData') // ADDED
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0)
                     ->where('process_status', '!=', 'completed');
@@ -1236,11 +1244,12 @@ class ReportsController extends Controller
         $reviewer_count = $pending_reviewer->count();
 
         $reviewer_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $reviewer_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($pending_reviewer as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $reviewer_by_type_of_work)) {
                 $reviewer_by_type_of_work[$key]++;
+                $reviewer_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $reviewer_by_type_of_work[''] = ($reviewer_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1257,18 +1266,22 @@ class ReportsController extends Controller
         $author_count = $pending_author->count();
 
         $author_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $author_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($pending_author as $item) {
             $key = $item->type_of_work ?? '';
             if (array_key_exists($key, $author_by_type_of_work)) {
                 $author_by_type_of_work[$key]++;
+                $author_ids_by_type_of_work[$key][] = $item->id ?? null; // ADDED (EntryProcessModel's own id)
             } else {
                 $author_by_type_of_work[''] = ($author_by_type_of_work[''] ?? 0) + 1;
             }
         }
 
         // SME
+        // CHANGED: added with('projectData')
         $pending_sme = ProjectAssignDetails::whereIn('type', ['writer', 'reviewer', 'statistican'])
             ->whereIn('status', ['completed', 'need_support'])
+            ->with('projectData') // ADDED
             ->whereHas('projectData', function ($query) use ($peopleIds_pm) {
                 $query->where('is_deleted', 0)
                     ->where('process_status', '!=', 'completed')
@@ -1290,8 +1303,7 @@ class ReportsController extends Controller
 
         $sme_by_type_of_work = array_fill_keys($type_of_work, 0);
         foreach ($pending_sme as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $sme_by_type_of_work)) {
                 $sme_by_type_of_work[$key]++;
             } else {
@@ -1360,11 +1372,12 @@ class ReportsController extends Controller
         $reviewerist_sme_count = $reviewerist_sme->count();
 
         $reviewerist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $reviewerist_sme_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($reviewerist_sme as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED: was EntryProcessModel::where('id', $item->project_id)->first()
             if (array_key_exists($key, $reviewerist_sme_by_type_of_work)) {
                 $reviewerist_sme_by_type_of_work[$key]++;
+                $reviewerist_sme_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $reviewerist_sme_by_type_of_work[''] = ($reviewerist_sme_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1410,11 +1423,12 @@ class ReportsController extends Controller
         $writerList_sme_count = $writerList->count();
 
         $writerList_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $writerList_sme_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($writerList as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $writerList_sme_by_type_of_work)) {
                 $writerList_sme_by_type_of_work[$key]++;
+                $writerList_sme_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $writerList_sme_by_type_of_work[''] = ($writerList_sme_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1467,11 +1481,12 @@ class ReportsController extends Controller
         $statisticanlist_sme_count = $statisticanlist->count();
 
         $statisticanlist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $statisticanlist_sme_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($statisticanlist as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $statisticanlist_sme_by_type_of_work)) {
                 $statisticanlist_sme_by_type_of_work[$key]++;
+                $statisticanlist_sme_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $statisticanlist_sme_by_type_of_work[''] = ($statisticanlist_sme_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1496,11 +1511,12 @@ class ReportsController extends Controller
         $smelist_sme_count = $smelist->count();
 
         $smelist_sme_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $smelist_sme_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($smelist as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $smelist_sme_by_type_of_work)) {
                 $smelist_sme_by_type_of_work[$key]++;
+                $smelist_sme_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $smelist_sme_by_type_of_work[''] = ($smelist_sme_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1539,11 +1555,12 @@ class ReportsController extends Controller
         $publication_list_count = $publication_list->count();
 
         $publication_list_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $publication_list_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($publication_list as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $publication_list_by_type_of_work)) {
                 $publication_list_by_type_of_work[$key]++;
+                $publication_list_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $publication_list_by_type_of_work[''] = ($publication_list_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1551,9 +1568,11 @@ class ReportsController extends Controller
 
         // Publication
         $publicationStatus = ['submit_to_journal', 'pending_author', 'rejected', 'withdrawal', 'resubmission', 'reviewer_comments', 'submitted'];
+        // CHANGED: added with('projectData')
         $pending_publication = ProjectAssignDetails::where('type', 'publication_manager')
             ->whereIn('status', $publicationStatus)
             ->whereIn('created_by', $peopleIds_sme)
+            ->with('projectData') // ADDED
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0)
                     ->where('process_status', '!=', 'completed');
@@ -1565,11 +1584,12 @@ class ReportsController extends Controller
         $publication_count = $pending_publication->count();
 
         $publication_by_type_of_work = array_fill_keys($type_of_work, 0);
+        $publication_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
         foreach ($pending_publication as $item) {
-            $ep = EntryProcessModel::where('id', $item->project_id)->first();
-            $key = $ep->type_of_work ?? '';
+            $key = $item->projectData->type_of_work ?? ''; // CHANGED
             if (array_key_exists($key, $publication_by_type_of_work)) {
                 $publication_by_type_of_work[$key]++;
+                $publication_ids_by_type_of_work[$key][] = $item->projectData->id ?? null; // ADDED
             } else {
                 $publication_by_type_of_work[''] = ($publication_by_type_of_work[''] ?? 0) + 1;
             }
@@ -1886,6 +1906,7 @@ class ReportsController extends Controller
 
         // ========== CALCULATE TC COUNTS BY TYPE OF WORK ==========
         $tc_counts = array_fill_keys($type_of_work, 0);
+        $tc_ids_by_type_of_work = array_fill_keys($type_of_work, []); // ADDED
 
         // Helper function to extract type_of_work from project_id or project_ids string
         $extractTypeFromString = function ($str) {
@@ -1924,6 +1945,8 @@ class ReportsController extends Controller
 
             if ($type && in_array($type, $type_of_work)) {
                 $tc_counts[$type]++;
+                // ADDED: id is on projectData when present, otherwise it's the EntryProcessModel's own id
+                $tc_ids_by_type_of_work[$type][] = $item->projectData->id ?? $item->id ?? null;
             }
         }
 
@@ -1932,6 +1955,7 @@ class ReportsController extends Controller
             $type = $item->projectData->type_of_work ?? null;
             if ($type && in_array($type, $type_of_work)) {
                 $tc_counts[$type]++;
+                $tc_ids_by_type_of_work[$type][] = $item->projectData->id ?? null; // ADDED
             }
         }
 
@@ -1940,6 +1964,7 @@ class ReportsController extends Controller
             $type = $item->type_of_work ?? null;
             if ($type && in_array($type, $type_of_work)) {
                 $tc_counts[$type]++;
+                $tc_ids_by_type_of_work[$type][] = $item->id ?? null; // ADDED (EntryProcessModel's own id)
             }
         }
 
@@ -1948,6 +1973,7 @@ class ReportsController extends Controller
             $type = $item->projectData->type_of_work ?? null;
             if ($type && in_array($type, $type_of_work)) {
                 $tc_counts[$type]++;
+                $tc_ids_by_type_of_work[$type][] = $item->projectData->id ?? null; // ADDED
             }
         }
 
@@ -1960,15 +1986,31 @@ class ReportsController extends Controller
                 ($smelist_sme_by_type_of_work[$type] ?? 0) +
                 ($publication_list_by_type_of_work[$type] ?? 0);
 
+            // ADDED: merge the ids from all 5 sme sources into one list for this type
+            $total_sme_ids = array_merge(
+                $reviewerist_sme_ids_by_type_of_work[$type] ?? [],
+                $writerList_sme_ids_by_type_of_work[$type] ?? [],
+                $statisticanlist_sme_ids_by_type_of_work[$type] ?? [],
+                $smelist_sme_ids_by_type_of_work[$type] ?? [],
+                $publication_list_ids_by_type_of_work[$type] ?? []
+            );
+
             $finalResponse[$index] = [
                 'type_of_work' => $type,
                 'pending_statistics' => $statistics_by_type_of_work[$type] ?? 0,
+                'pending_statistics_ids' => $statistics_ids_by_type_of_work[$type] ?? [], // ADDED
                 'pending_writer' => $writer_by_type_of_work[$type] ?? 0,
+                'pending_writer_ids' => $writer_ids_by_type_of_work[$type] ?? [], // ADDED
                 'pending_reviewer' => $reviewer_by_type_of_work[$type] ?? 0,
+                'pending_reviewer_ids' => $reviewer_ids_by_type_of_work[$type] ?? [], // ADDED
                 'pending_author' => $author_by_type_of_work[$type] ?? 0,
+                'pending_author_ids' => $author_ids_by_type_of_work[$type] ?? [], // ADDED
                 'pending_sme' => $total_sme,
+                'pending_sme_ids' => $total_sme_ids, // ADDED
                 'tc' => $tc_counts[$type],
+                'tc_ids' => $tc_ids_by_type_of_work[$type] ?? [], // ADDED
                 'pending_publication' => $publication_by_type_of_work[$type] ?? 0,
+                'pending_publication_ids' => $publication_ids_by_type_of_work[$type] ?? [], // ADDED
             ];
         }
 
@@ -2622,6 +2664,7 @@ class ReportsController extends Controller
         return "{$hours} hr {$remainingMinutes} min";
     }
 
+
     public function journalStatus(Request $request)
     {
         $fromDate = $request->query('from_date');
@@ -2629,6 +2672,7 @@ class ReportsController extends Controller
         $journalStatus = ['submit_to_journal', 'pending_author', 'resubmission', 'reviewer_comments'];
         $pending_journal = ProjectAssignDetails::where('type', 'publication_manager')
             ->whereIn('status', $journalStatus)
+            ->with('projectData') // ADDED: so we can read the id off projectData
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->where('process_status', '!=', 'completed')
                     ->when($fromDate, fn($q) => $q->whereDate('entry_date', '>=', $fromDate))
@@ -2647,20 +2691,28 @@ class ReportsController extends Controller
             $statusData = [
                 'period' => $status,
                 'total' => $entries->count(),
+                'total_ids' => $entries->map(fn($entry) => $entry->projectData->id ?? $entry->project_id)->values()->all(), // ADDED
                 'two_weeks' => 0,
+                'two_weeks_ids' => [], // ADDED
                 'two_four_weeks' => 0,
+                'two_four_weeks_ids' => [], // ADDED
                 'four_weeks' => 0,
+                'four_weeks_ids' => [], // ADDED
             ];
 
             foreach ($entries as $entry) {
                 $diffInDays = $now->diffInDays($entry->entry_date);
+                $id = $entry->projectData->id ?? $entry->project_id; // ADDED: id from projectData, falls back to the assign detail's project_id
 
                 if ($diffInDays < 14) {
                     $statusData['two_weeks']++;
+                    $statusData['two_weeks_ids'][] = $id; // ADDED
                 } elseif ($diffInDays <= 28) {
                     $statusData['two_four_weeks']++;
+                    $statusData['two_four_weeks_ids'][] = $id; // ADDED
                 } else {
                     $statusData['four_weeks']++;
+                    $statusData['four_weeks_ids'][] = $id; // ADDED
                 }
             }
 

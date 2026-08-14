@@ -131,12 +131,18 @@ return [
          'mysql_medics_hrms' => [
             'driver' => 'mysql',
             'read' => [
-                'host' => ['187.127.178.144'],
+                'host' => ['127.0.0.1'],
             ],
             'write' => [
-                'host' => ['187.127.178.144'],
+                'host' => ['127.0.0.1'],
             ],
-            'port' => '3306',
+            // 'read' => [
+            //     'host' => ['187.127.178.144'],
+            // ],
+            // 'write' => [
+            //     'host' => ['187.127.178.144'],
+            // ],
+            'port' => '3307',
             'database' => 'medicshrms',
             'username' => 'medicsapp',
             'password' => 'YUra@2025',
