@@ -2164,6 +2164,9 @@ class ReportsController extends Controller
                     'total_duration_seconds' => $durationInSeconds,
                     'has_activity' => $hasWriterActivity || $hasReviewerActivity || $hasStatisticianActivity,
                 ];
+                if (! $record['has_activity']) {
+                    continue;
+                }
 
                 $performanceData[] = $record;
             }
