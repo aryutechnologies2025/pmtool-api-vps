@@ -2059,12 +2059,14 @@ class ReportsController extends Controller
         $allManuscriptDurations = [];
         $allThesisDurations = [];
         $allReviewDurations = [];
+        $allStatisticianDurations = []; // FIX: was referenced but never initialized in original code
 
         // Track unique projects to avoid duplicates
         $uniqueProjects = [
             'manuscript' => [],
             'thesis' => [],
-            'review' => []
+            'review' => [],
+            'statistican' => [], // FIX: added, was missing but used below
         ];
 
         // Track which projects we've already added to duration arrays
@@ -2103,7 +2105,6 @@ class ReportsController extends Controller
                 $hasStatisticianActivity = !empty($projectData['statistican']) && $projectData['statistican']['total_duration'] > 0;
 
                 if ($typeOfWork === 'manuscript') {
-                    // if ($durationInSeconds > 0) {
                     if ($this->formatSecondsToUnits($durationInSeconds) > 0) {
                         if (!in_array($projectId, $addedToDurations['manuscript'])) {
                             $allManuscriptDurations[] = $durationInSeconds;
@@ -2111,7 +2112,6 @@ class ReportsController extends Controller
                         }
                     }
                 } elseif ($typeOfWork === 'thesis') {
-                    // if ($durationInSeconds > 0) {
                     if ($this->formatSecondsToUnits($durationInSeconds) > 0) {
                         if (!in_array($projectId, $addedToDurations['thesis'])) {
                             $allThesisDurations[] = $durationInSeconds;
@@ -2123,7 +2123,6 @@ class ReportsController extends Controller
                 // For reviews, count each unique employee-project combination
                 if ($hasReviewerActivity) {
                     $reviewKey = $employeeId . '_' . $projectId;
-                    // if ($durationInSeconds > 0) {
                     if ($this->formatSecondsToUnits($durationInSeconds) > 0) {
                         if (!in_array($reviewKey, $uniqueProjects['review'])) {
                             $allReviewDurations[] = $durationInSeconds;
@@ -2133,7 +2132,6 @@ class ReportsController extends Controller
                 }
                 if ($hasStatisticianActivity) {
                     $statisticianKey = $employeeId . '_' . $projectId;
-                    // if ($durationInSeconds > 0) {
                     if ($this->formatSecondsToUnits($durationInSeconds) > 0) {
                         if (!in_array($statisticianKey, $uniqueProjects['statistican'])) {
                             $allStatisticianDurations[] = $durationInSeconds;
@@ -2141,16 +2139,6 @@ class ReportsController extends Controller
                         }
                     }
                 }
-
-                // Skip if no type_of_work found
-                // if ($typeOfWork === null) {
-                //     continue;
-                // }
-
-                // // Skip records with zero duration and no activity
-                // if ($durationInSeconds <= 0) {
-                //     continue;
-                // }
 
                 $record = [
                     'employee_id' => $employeeId,
@@ -2164,6 +2152,8 @@ class ReportsController extends Controller
                     'total_duration_seconds' => $durationInSeconds,
                     'has_activity' => $hasWriterActivity || $hasReviewerActivity || $hasStatisticianActivity,
                 ];
+
+                // FIX: skip records with no activity at all instead of including them
                 if (! $record['has_activity']) {
                     continue;
                 }
@@ -2193,84 +2183,7 @@ class ReportsController extends Controller
 
         $rank25 = $totalManuscripts > 0 ? (25 / 100) * ($totalManuscripts + 1) : null;
 
-
-        // Add percentiles to each record based on its type
-        // foreach ($performanceData as &$record) {
-        //     // Add global percentiles for reference
-        //     $record['global_percentiles'] = [
-        //         'manuscript' => [
-        //             'total_count' => $totalManuscripts,
-        //             'percentile_25_seconds' => $globalManuscriptPercentiles[25] ?? null,
-        //             'percentile_25_formatted' => isset($globalManuscriptPercentiles[25]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[25]) : null,
-        //             'percentile_50_seconds' => $globalManuscriptPercentiles[50] ?? null,
-        //             'percentile_50_formatted' => isset($globalManuscriptPercentiles[50]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[50]) : null,
-        //             'percentile_75_seconds' => $globalManuscriptPercentiles[75] ?? null,
-        //             'percentile_75_formatted' => isset($globalManuscriptPercentiles[75]) ? $this->formatSecondsToUnits($globalManuscriptPercentiles[75]) : null,
-        //         ],
-        //         'thesis' => [
-        //             'total_count' => $totalThesis,
-        //             'percentile_25_seconds' => $globalThesisPercentiles[25] ?? null,
-        //             'percentile_25_formatted' => isset($globalThesisPercentiles[25]) ? $this->formatSecondsToUnits($globalThesisPercentiles[25]) : null,
-        //             'percentile_50_seconds' => $globalThesisPercentiles[50] ?? null,
-        //             'percentile_50_formatted' => isset($globalThesisPercentiles[50]) ? $this->formatSecondsToUnits($globalThesisPercentiles[50]) : null,
-        //             'percentile_75_seconds' => $globalThesisPercentiles[75] ?? null,
-        //             'percentile_75_formatted' => isset($globalThesisPercentiles[75]) ? $this->formatSecondsToUnits($globalThesisPercentiles[75]) : null,
-        //         ],
-        //         'review' => [
-        //             'total_count' => count($allReviewDurations),
-        //             'percentile_25_seconds' => $globalReviewPercentiles[25] ?? null,
-        //             'percentile_25_formatted' => isset($globalReviewPercentiles[25]) ? $this->formatSecondsToUnits($globalReviewPercentiles[25]) : null,
-        //             'percentile_50_seconds' => $globalReviewPercentiles[50] ?? null,
-        //             'percentile_50_formatted' => isset($globalReviewPercentiles[50]) ? $this->formatSecondsToUnits($globalReviewPercentiles[50]) : null,
-        //             'percentile_75_seconds' => $globalReviewPercentiles[75] ?? null,
-        //             'percentile_75_formatted' => isset($globalReviewPercentiles[75]) ? $this->formatSecondsToUnits($globalReviewPercentiles[75]) : null,
-        //         ],
-        //     ];
-
-        //     $hasWriterActivity = !empty($record['writer']) && $record['writer']['total_duration'] > 0;
-        //     $hasReviewerActivity = !empty($record['reviewer']) && $record['reviewer']['total_duration'] > 0;
-
-        //     // Calculate percentile based on the record's type_of_work
-        //     if ($hasWriterActivity) {
-        //         if ($record['type_of_work'] === 'manuscript') {
-        //             // Use ONLY manuscript data for comparison
-        //             $record['percentile_rank'] = $this->getPercentileRank($record['total_duration_seconds'], $allManuscriptDurations);
-        //             $record['percentile_position'] = $this->getPercentilePosition($record['total_duration_seconds'], $allManuscriptDurations);
-        //             $record['percentile_category'] = 'manuscript_writing';
-        //             $record['comparison_dataset'] = 'manuscript_projects';
-        //             $record['dataset_size'] = $totalManuscripts;
-        //         } elseif ($record['type_of_work'] === 'thesis') {
-        //             // Use ONLY thesis data for comparison
-        //             $record['percentile_rank'] = $this->getPercentileRank($record['total_duration_seconds'], $allThesisDurations);
-        //             $record['percentile_position'] = $this->getPercentilePosition($record['total_duration_seconds'], $allThesisDurations);
-        //             $record['percentile_category'] = 'thesis_writing';
-        //             $record['comparison_dataset'] = 'thesis_projects';
-        //             $record['dataset_size'] = $totalThesis;
-        //         } else {
-        //             $record['percentile_rank'] = null;
-        //             $record['percentile_position'] = null;
-        //             $record['percentile_category'] = 'other_writing';
-        //             $record['comparison_dataset'] = 'not_applicable';
-        //             $record['dataset_size'] = 0;
-        //         }
-        //     } 
-        //     elseif ($hasReviewerActivity) {
-        //         // Use ONLY review data for comparison
-        //         $record['percentile_rank'] = $this->getPercentileRank($record['total_duration_seconds'], $allReviewDurations);
-        //         $record['percentile_position'] = $this->getPercentilePosition($record['total_duration_seconds'], $allReviewDurations);
-        //         $record['percentile_category'] = 'reviewing';
-        //         $record['comparison_dataset'] = 'review_activities';
-        //         $record['dataset_size'] = count($allReviewDurations);
-        //     } else {
-        //         $record['percentile_rank'] = null;
-        //         $record['percentile_position'] = null;
-        //         $record['percentile_category'] = 'no_activity';
-        //         $record['comparison_dataset'] = 'not_applicable';
-        //         $record['dataset_size'] = 0;
-        //     }
-        // }
-
-        // Sort AFTER adding percentiles
+        // Sort by duration
         usort($performanceData, function ($a, $b) {
             if ($a['total_duration_seconds'] == $b['total_duration_seconds']) {
                 return 0;
@@ -2463,17 +2376,18 @@ class ReportsController extends Controller
                 $log = $projectLogs[$i];
 
                 if ($log->status === 'on_going') {
-                    $firstCompleted = null;
+                    // FIX: an on_going period can be closed by either 'completed' OR 'revert'
+                    $nextClosingLog = null;
                     for ($j = $i + 1; $j < $totalLogs; $j++) {
-                        if ($projectLogs[$j]->status === 'completed') {
-                            $firstCompleted = $projectLogs[$j];
+                        if (in_array($projectLogs[$j]->status, ['completed', 'revert'])) {
+                            $nextClosingLog = $projectLogs[$j];
                             break;
                         }
                     }
 
-                    if ($firstCompleted) {
+                    if ($nextClosingLog) {
                         $startTime = Carbon::parse($log->created_date);
-                        $endTime = Carbon::parse($firstCompleted->created_date);
+                        $endTime = Carbon::parse($nextClosingLog->created_date);
                         $duration = $startTime->diffInSeconds($endTime);
 
                         $employeePerformance['project_data'][$projectId][$role]['normal'][] = [
