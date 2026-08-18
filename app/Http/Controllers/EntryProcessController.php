@@ -11065,7 +11065,7 @@ class EntryProcessController extends Controller
         try {
             $employees = DB::connection('mysql_medics_hrms')
                 ->table('employee_details')
-                ->whereNotIn('position', ['Admin', '13', '14', '27', '28', '23', '42', '11'])
+                ->whereNotIn('position', ['Admin', '13', '14', '27', '28', '23', '42'])
                 ->select('id', 'employee_name', 'position')
                 ->where('status', '1')
                 ->get();
