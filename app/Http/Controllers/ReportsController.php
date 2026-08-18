@@ -2376,18 +2376,20 @@ class ReportsController extends Controller
                 $log = $projectLogs[$i];
 
                 if ($log->status === 'on_going') {
-                    // FIX: an on_going period can be closed by either 'completed' OR 'revert'
-                    $nextClosingLog = null;
+
+                    $lastClosingLog = null;
                     for ($j = $i + 1; $j < $totalLogs; $j++) {
-                        if (in_array($projectLogs[$j]->status, ['completed', 'revert'])) {
-                            $nextClosingLog = $projectLogs[$j];
+                        if ($projectLogs[$j]->status === 'on_going') {
                             break;
+                        }
+                        if (in_array($projectLogs[$j]->status, ['completed', 'revert'])) {
+                            $lastClosingLog = $projectLogs[$j];
                         }
                     }
 
-                    if ($nextClosingLog) {
+                    if ($lastClosingLog) {
                         $startTime = Carbon::parse($log->created_date);
-                        $endTime = Carbon::parse($nextClosingLog->created_date);
+                        $endTime = Carbon::parse($lastClosingLog->created_date);
                         $duration = $startTime->diffInSeconds($endTime);
 
                         $employeePerformance['project_data'][$projectId][$role]['normal'][] = [
