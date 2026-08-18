@@ -3950,6 +3950,7 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->where('is_deleted', 0);
                     })
                     ->get()
@@ -4016,6 +4017,7 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->where('is_deleted', 0);
                     })
                     ->get()
@@ -4082,7 +4084,8 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate)
-                            ->where('is_deleted', 0);
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'withdrawal');
                     })
                     ->get()
                     ->pluck('projectData.id')
@@ -4287,6 +4290,7 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->where('is_deleted', 0);
                     })
                     ->get()
@@ -4357,6 +4361,7 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->where('is_deleted', 0);
                     })
                     ->get()
@@ -4422,6 +4427,7 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->where('is_deleted', 0);
                     })
                     ->get()
@@ -4621,6 +4627,7 @@ class EntryProcessController extends Controller
                             ->where('is_deleted', 0)
                             ->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->where('is_deleted', 0);
                     })
                     ->where('type', 'writer')
@@ -4688,6 +4695,7 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->where('type_of_work', 'thesis')
                             ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate);
                     })
@@ -4755,6 +4763,7 @@ class EntryProcessController extends Controller
                     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                         $query->where('type_of_work', 'thesis')
                             ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'withdrawal')
                             ->whereDate('entry_date', '>=', $fromDate)
                             ->whereDate('entry_date', '<=', $toDate);
                     })
@@ -5791,7 +5800,7 @@ class EntryProcessController extends Controller
             ->whereIn('status', array_keys($journalStatusCounts))
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
+                    ->whereNotIn('process_status', ['completed', 'withdrawal'])
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
             })
@@ -6360,7 +6369,7 @@ class EntryProcessController extends Controller
             ->whereIn('status', array_keys($journalStatusCounts))
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
+                    ->whereNotIn('process_status', ['completed', 'withdrawal'])
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
             })
