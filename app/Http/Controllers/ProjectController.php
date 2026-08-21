@@ -101,8 +101,8 @@ class ProjectController extends Controller
                         $originalName = $file->getClientOriginalName();
 
                         // Create unique folder for each upload
-                        $folderName = time().rand(100, 999);
-                        $path = public_path('activity_files/'.$folderName);
+                        $folderName = time() . rand(100, 999);
+                        $path = public_path('activity_files/' . $folderName);
 
                         mkdir($path, 0775, true);
 
@@ -111,7 +111,7 @@ class ProjectController extends Controller
 
                         $activityd = new ActivityDocuments;
                         $activityd->activity_id = $activity->id;
-                        $activityd->files = $folderName.'/'.$originalName;
+                        $activityd->files = $folderName . '/' . $originalName;
                         $activityd->original_name = $originalName;
                         $activityd->created_by = $request->createdby;
                         $activityd->type = 'activity';
@@ -119,7 +119,6 @@ class ProjectController extends Controller
                         $activityd->save();
                     }
                 }
-
             } else {
                 Log::info('No files detected in request');
             }
@@ -192,7 +191,7 @@ class ProjectController extends Controller
 
             Log::info('Checking request data', ['request_data' => $request->project_id]);
             Log::info('Checking request data', ['request_data' => $request->createdby]);
-        
+
             //project activity
             $activity = new ProjectActivity;
             $activity->project_id = $request->project_id;
@@ -294,7 +293,7 @@ class ProjectController extends Controller
                         $cleanedName = strtolower(preg_replace('/[^a-z0-9]+/i', '-', pathinfo($originalName, PATHINFO_FILENAME)));
                         $cleanedName = str_replace('_', '', $cleanedName);
 
-                        $uniqueName = $cleanedName.'.'.$originalExtension;
+                        $uniqueName = $cleanedName . '.' . $originalExtension;
 
                         $path = public_path('activity_files');
                         if (! is_dir($path)) {
@@ -305,7 +304,7 @@ class ProjectController extends Controller
                         $activityd = new ActivityDocuments;
                         $activityd->activity_id = $activity->id;
                         $activityd->files = $uniqueName;
-                        $activityd->original_name = $cleanedName.'.'.$originalExtension;
+                        $activityd->original_name = $cleanedName . '.' . $originalExtension;
                         $activityd->created_by = $request->createdby;
                         $activityd->type = 'status';
                         $activityd->created_date = now();
@@ -573,79 +572,6 @@ class ProjectController extends Controller
         ], 404);
     }
 
-    // public function markReplyAsRead(Request $request)
-    // {
-    //     $projectId = $request->projectid;
-    //     $replyId = $request->activity_id;
-    //     $createdby = $request->createdby;
-    //     $project_number = $request->project_number;
-    //     $type = $request->type;
-
-    //     if ($type === 'statusassign') {
-    //         // $activity = AssigneeStatus::find($replyId);
-
-    //         // if ($activity) {
-    //         //     // Set the 'is_read' field to 1
-    //         //     $activity->is_read = 1;
-    //         //     $activity->save();
-    //         //     return response()->json([
-    //         //         'success' => true,
-    //         //         'message' => 'Activity marked as read successfully'
-    //         //     ]);
-    //         // }
-    //         $updated = AssigneeStatus::where('project_id', $project_number)
-    //             // ->where('created_by', $createdby)
-    //             ->update(['is_read' => 1]);
-
-    //         $updated_comments = Activity::where('project_id', $project_number)
-    //             ->update(['is_read' => 1]);
-
-    //         if ($updated && $updated_comments) {
-    //             return response()->json([
-    //                 'success' => true,
-    //                 'message' => 'All related activities marked as read successfully'
-    //             ]);
-    //         }
-    //     } else {
-    //         // $activityreply_id = ActivityReplies::where('project_id', $projectId)->get();
-
-    //         $commentslist = new CommentsList();
-    //         $commentslist->project_id = $projectId;
-    //         $commentslist->comment_id = $replyId;
-    //         $commentslist->commend_type = $type;
-    //         $commentslist->created_by = $createdby;
-    //         $commentslist->is_read = 1;
-    //         //$commentslist->created_date = date('Y-m-d H:i:s');
-    //         $commentslist->created_date = date('Y-m-d H:i:s');
-    //         $commentslist->save();
-
-    //         $activityreply_id = ActivityReplies::select('id')->where('project_id', $projectId)->get();
-    //         $activity_id = Activity::select('id')->where('project_id', $projectId)->get();
-
-    //         foreach ($activity_id as $act) {
-    //             $activitylist = new NotificationList();
-    //             $activitylist->project_id = $projectId;
-    //             $activitylist->comment_id = $commentslist->id;
-    //             $activitylist->notification_type = 'activity';
-    //             $activitylist->notification_id = $act->id;
-    //             $activitylist->created_by = $createdby;
-    //             $activitylist->save();
-    //         }
-
-    //         foreach ($activityreply_id as $actReply) {
-    //             $activityReplylist = new NotificationList();
-    //             $activityReplylist->project_id = $projectId;
-    //             $activityReplylist->comment_id = $commentslist->id;
-    //             $activityReplylist->notification_type = 'reply';
-    //             $activityReplylist->notification_id = $actReply->id;
-    //             $activityReplylist->created_by = $createdby;
-    //             $activityReplylist->save();
-    //         }
-    //     }
-
-    //     return response()->json(['message' => 'Reply marked as read']);
-    // }
-
     public function markReplyAsRead(Request $request)
     {
         $action = $request->input('action'); // 'statusassign', 'notification', or 'clear_all'
@@ -896,43 +822,6 @@ class ProjectController extends Controller
         }
     }
 
-    // private function sendNotificationToPosition($entries, array $positionIds, string $message)
-    // {
-    //     foreach ($entries as $entry) {
-    //         $assignName = optional($entry->UserDate)->employee_name ?? 'Unknown';
-
-    //         foreach ($positionIds as $positionId) {
-    //             $exists = EntryProcessModel::where('id', $entry->id)->exists();
-
-    //             if ($exists) {
-
-    //                 // $alreadyExists = NotificationLog::where([
-    //                 //     'entry_process_id' => $entry->id,
-    //                 //     'project_id'       => $entry->project_id,
-    //                 //     'assign_id'        =>  "14",
-    //                 //     'position_id'      => $positionId,
-    //                 //     'message'          => $message,
-    //                 //     'employee_name'    => $assignName,
-    //                 // ])->exists();
-    //                 $alreadyExists = NotificationLog::where('entry_process_id', $entry->id)->exists();
-
-    //                 if (!$alreadyExists) {
-    //                     NotificationLog::create([
-    //                         'entry_process_id' => $entry->id,
-    //                         'project_id'       => $entry->project_id,
-    //                         'assign_id'        => $fallbackAssignId ?? "14",
-    //                         'position_id'      => $positionId,
-    //                         'message'          => $message,
-    //                         'employee_name'    => $assignName,
-    //                         'status'           => 'unread',
-    //                     ]);
-    //                 }
-    //             } else {
-    //                 Log::warning("Entry process ID {$entry->id} does not exist. Skipping notification log creation.");
-    //             }
-    //         }
-    //     }
-    // }
     private function sendNotificationToPosition($entries, array $positionIds, string $message, $fallbackAssignId)
     {
         foreach ($entries as $entry) {
@@ -1060,33 +949,7 @@ class ProjectController extends Controller
         ]);
     }
 
-    //     public function getIncome_Expense(Request $request)
-    //     {
-    //         $month = $request->input('month', date('m')); // Default to current month if not provided
-    //         $year = $request->input('year', date('Y')); // Default to current year if not provided
 
-    //         $journal_details = EmployeePaymentDetails::where('type', 'publication_manager')
-    //             ->whereMonth('created_at', $month)
-    //             ->whereYear('created_at', $year)
-    //             ->sum('payment');
-
-    //         $freelancer_details = EmployeePaymentDetails::where('type', '!=', 'publication_manager')
-    //             ->whereMonth('created_at', $month)
-    //             ->whereYear('created_at', $year)
-    //             ->sum('payment');
-
-    //         // $userhrms = DB::connection('mysql_medics_hrms')
-    //         //     ->table('salary_information')
-    //         //     ->whereMonth('created_at', $month)
-    //         //     ->whereYear('created_at', $year)
-    //         //     ->sum('salary_amount');
-
-    //         return response()->json([
-    //             'journal_details' => $journal_details,
-    //             'freelancer_details' => $freelancer_details,
-    //             //  'userhrms' => $userhrms
-    //         ]);
-    //     }
 
     public function getIncome_Expense(Request $request)
     {
@@ -1101,6 +964,7 @@ class ProjectController extends Controller
         //     ->whereYear('created_at', $year)
         //     ->sum('payment');
         $journal_records = EmployeePaymentDetails::where('type', 'publication_manager')
+            ->whereNotNull('employee_id')
             ->whereHas('entryProcess', function ($q) use ($months, $year) {
                 $q->whereMonth('entry_date', $months)
                     ->whereYear('entry_date', $year);
@@ -1111,12 +975,12 @@ class ProjectController extends Controller
         // Total payment
         $journal_details = $journal_records->sum('payment');
 
-        log::info('Total Payment: '.$journal_details);
+        log::info('Total Payment: ' . $journal_details);
 
         // Log individual records
         foreach ($journal_records as $record) {
-            log::info('ID: '.$record->id);
-            log::info('Project ID: '.$record->project_id);
+            log::info('ID: ' . $record->id);
+            log::info('Project ID: ' . $record->project_id);
         }
 
         // Freelancer payments (non-publication managers)
@@ -1141,23 +1005,23 @@ class ProjectController extends Controller
                 $totalPayroll = collect($data)->sum('total_salary_with_ot');
             }
         } catch (\Exception $e) {
-            \Log::error('HRMS Payroll API error: '.$e->getMessage());
+            \Log::error('HRMS Payroll API error: ' . $e->getMessage());
         }
 
         // Office expenses (from HRMS API)
         $officeExpenses = 0;
         try {
-            $response = Http::get('https://hrmsapi.medicsresearch.com/api/expense',[
-              'month' => $months,
-              'year' => $year
-              ]);
+            $response = Http::get('https://hrmsapi.medicsresearch.com/api/expense', [
+                'month' => $months,
+                'year' => $year
+            ]);
 
             if ($response->successful()) {
                 $data = $response->json();
                 $officeExpenses = collect($data['data'])->sum('amount');
             }
         } catch (\Exception $e) {
-            \Log::error('HRMS Expense API error: '.$e->getMessage());
+            \Log::error('HRMS Expense API error: ' . $e->getMessage());
         }
 
         return response()->json([

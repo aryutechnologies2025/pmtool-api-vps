@@ -25,35 +25,35 @@ class EmployeePaymentDetails extends Model
     public function UserDateF()
     {
         return $this->hasOne(User::class, 'id', 'employee_id')
-        ->where('employee_type','freelancers')
-        ->select('id','employee_name','employee_type','position','department','date_of_joining','phone_number','email_address','profile_image')
-        ->where('status','1')
-        ->with('createdByUser');
+            ->where('employee_type', 'freelancers')
+            ->select('id', 'employee_name', 'employee_type', 'position', 'department', 'date_of_joining', 'phone_number', 'email_address', 'profile_image')
+            ->where('status', '1')
+            ->with('createdByUser');
+    }
+    public function EmployeeAny()
+    {
+        return $this->hasOne(User::class, 'id', 'employee_id')
+            ->select('id', 'employee_name', 'employee_type', 'position', 'department', 'date_of_joining', 'phone_number', 'email_address', 'profile_image', 'status');
     }
 
     public function entryProcess()
     {
         return $this->belongsTo(EntryProcessModel::class, 'project_id', 'id')
-            ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work','process_status');
-            
-
+            ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'process_status');
     }
 
     public function projectData()
     {
         return $this->belongsTo(EntryProcessModel::class, 'project_id', 'id')
-            ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work','process_status');
-            
-
+            ->select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'process_status');
     }
 
-  
-  public function UserDate()
+
+    public function UserDate()
     {
         return $this->hasOne(User::class, 'id', 'employee_id')
-        ->select('id','employee_name','employee_type','position')
-        ->where('status','1')
-        ->with('createdByUser');
+            ->select('id', 'employee_name', 'employee_type', 'position')
+            ->where('status', '1')
+            ->with('createdByUser');
     }
-
 }

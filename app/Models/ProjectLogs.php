@@ -33,7 +33,7 @@ class ProjectLogs extends Model
             'paymentProcess',
             'journalData',
         ])
-        ->select('id','entry_date','title','project_id','type_of_work','email','institute','department','profession','budget','process_status','hierarchy_level','created_by','project_status','assign_by','assign_date','projectduration');
+        ->select('id','entry_date','title','project_id','type_of_work','email','institute','department','profession','budget','process_status','hierarchy_level','created_by','project_status','assign_by','assign_date','projectduration','is_deleted');
     }
 
     public function userData()

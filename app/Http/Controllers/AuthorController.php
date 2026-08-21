@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
+
 class AuthorController extends Controller
 {
     public function store(Request $request)
@@ -122,52 +123,6 @@ class AuthorController extends Controller
 
     //submission Form
 
-    // public function submission_store(Request $request)
-    // {
-    //     $entry = EntryProcessModel::select('id', 'project_id')->where('id', $request->project_id)->first();
-    //     if (! $entry) {
-    //         return response()->json(['message' => 'Project not found'], 404);
-    //     }
-
-    //     $type = $request->type_of_article;
-    //     $submission = new AuthorSubmissionForm;
-    //     $submission->project_id = $request->project_id;
-    //     $submission->journal_name = $request->journal_name;
-    //     $submission->type_of_article = $type;
-    //     $submission->article_id = $request->article_id;
-    //     $submission->review = $request->review;
-    //     $submission->date_of_submission = $request->date_of_submission;
-    //     $submission->journal_fee = $request->journal_fee;
-    //     $submission->created_by = $request->created_by;
-    //     $submission->save();
-
-    //     $jounalPaymentDetails = EmployeePaymentDetails::where('project_id', $request->project_id)
-    //         ->where('type','publication_manager')->first();
-    //     if($jounalPaymentDetails){
-    //         $jounalPaymentDetails->employee_id = $request->journal_name;
-    //         $jounalPaymentDetails->save();
-    //     }
-
-    //     $details = ProjectAssignDetails::where('project_id', $request->project_id)
-    //         ->where('type', 'publication_manager')
-    //         ->first();
-    //     if ($details) {
-    //         $details->assign_user = $request->journal_name;
-    //         $details->review = $request->review;
-    //         $details->save();
-    //     }
-
-    //     $projectLogDetails = ProjectLogs::where('project_id', $request->project_id)
-    //     ->where('type','publication_manager')->first();
-    //     if($projectLogDetails){
-    //         $projectLogDetails->employee_id = $request->journal_name;
-    //         $projectLogDetails->save();
-    //     }
-
-    //     return response()->json([$submission, 'message' => 'Submission created successfully'], 200);
-    // }
-
-    
 
     public function submission_store(Request $request)
     {
@@ -266,22 +221,22 @@ class AuthorController extends Controller
             $comments = array_map('trim', explode(',', $request->comments));
         }
 
-        
+
         $comments = array_filter($comments);
 
-      
+
         $commentsText = implode(', ', $comments);
 
-     
+
         $filePath = null;
         if ($request->hasFile('file')) {
             $file = $request->file('file');
             $filename = $file->getClientOriginalName();
-            $filePath = 'reviewer_files/'.$filename;
+            $filePath = 'reviewer_files/' . $filename;
             $file->move(public_path('reviewer_files'), $filename);
         }
 
-    
+
         $reviewerComments = new ReviewerComments;
         $reviewerComments->project_id = $request->project_id;
         $reviewerComments->record_date = $request->record_date;
@@ -390,54 +345,6 @@ class AuthorController extends Controller
 
     //documentsForm
 
-    // public function documentForm(Request $request)
-    // {
-    //     // $request->validate([
-    //     //     'project_id' => 'required|integer',
-    //     //     'created_by' => 'required|integer',
-    //     //     'title' => 'required|array',
-    //     //     'title.*' => 'required|string',
-    //     //     'file' => 'required|array',
-    //     //     'file.*' => 'required|file',
-    //     // ]);
-    //     $entry = EntryProcessModel::select('id','project_id')->where('id',$request->project_id)->first();
-    //     if(!$entry){
-    //         return response()->json(['message' => 'Project not found'], 404);
-    //     }
-
-    //     $documents = [];
-
-    //     foreach ($request->file('file') as $index => $file) {
-    //         $filename = time() . '_' . $file->getClientOriginalName();
-    //         $filePath = 'author_document_files/' . $filename;
-
-    //         // Store file in the public path
-    //         $file->move(public_path('author_document_files'), $filename);
-
-    //         $documents[] = [
-    //             'project_id' => $request->project_id,
-    //             'title' => $request->title[$index], // Get the corresponding title
-    //             'file' => $filePath, // Save public path for access
-    //             'created_by' => $request->created_by,
-    //             'created_at' => now(),
-    //             'updated_at' => now(),
-    //         ];
-    //     }
-
-    //     DocumentsForm::insert($documents);
-
-    //     return response()->json(['message' => 'Files uploaded successfully!']);
-    // }
-    // public function document_list(Request $request){
-    //     $project_id = $request->query('project_id');
-    //     $document = DocumentsForm::orderBy('created_at', 'desc');
-    //     if($project_id){
-    //         $document->where('project_id', $project_id);
-    //     }
-    //     $document_list = $document->get();
-    //     return response()->json($document_list);
-    // }
-
     public function documentForm(Request $request)
     {
         $request->validate([
@@ -480,8 +387,8 @@ class AuthorController extends Controller
         ]);
 
         foreach ($request->file('file') as $file) {
-            $filename = time().'_'.$file->getClientOriginalName();
-            $filePath = 'author_document_files/'.$filename;
+            $filename = time() . '_' . $file->getClientOriginalName();
+            $filePath = 'author_document_files/' . $filename;
             $file->move(public_path('author_document_files'), $filename);
 
             DocumentFile::create([
@@ -921,7 +828,7 @@ class AuthorController extends Controller
         if ($type && array_key_exists($type, $data)) {
             return response()->json([
                 'data' => $data[$type],
-                'message' => ucfirst(str_replace('_', ' ', $type)).' projects retrieved successfully',
+                'message' => ucfirst(str_replace('_', ' ', $type)) . ' projects retrieved successfully',
             ]);
         }
 
@@ -1032,7 +939,6 @@ class AuthorController extends Controller
                 $activity->created_by = $createdby;
                 $activity->created_date = now();
                 $activity->save();
-
             } else {
                 // Create a new record if none exists
                 $details = new ProjectAssignDetails;

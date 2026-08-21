@@ -73,7 +73,7 @@ class EntryProcessController extends Controller
         // $authorname = $request->query('author_name') ?? 'all';
         // $details = EntryProcessModel::select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'email', 'institute', 'department', 'profession', 'client_name', 'process_status', DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration"))->with(['paymentProcess', 'institute', 'department', 'profession'])->where('is_deleted', 0);
         $details = EntryProcessModel::select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'email', 'institute', 'department', 'profession', 'client_name', 'process_status', DB::raw("CONCAT(DATEDIFF(projectduration, entry_date), ' days') AS projectduration"))
-        // DB::raw("CONCAT(DATEDIFF(projectduration, entry_date), ' days ', MOD(TIMESTAMPDIFF(HOUR, entry_date, projectduration), 24), ' hrs') AS projectduration"))
+            // DB::raw("CONCAT(DATEDIFF(projectduration, entry_date), ' days ', MOD(TIMESTAMPDIFF(HOUR, entry_date, projectduration), 24), ' hrs') AS projectduration"))
             ->with(['paymentProcess', 'institute', 'department', 'profession'])->where('is_deleted', 0);
         if (isset($start_date) && isset($end_date)) {
             $details = $details->whereBetween('entry_date', [$start_date, $end_date]);
@@ -142,7 +142,6 @@ class EntryProcessController extends Controller
             'institutions' => $institutionsList,
             'authorname' => $authornameList,
             'processstatus' => $processStatus,
-            'das'=> "asd1"
         ]);
     }
 
@@ -156,7 +155,7 @@ class EntryProcessController extends Controller
         // $authorname = $request->query('author_name') ?? 'all';
         // $details = EntryProcessModel::select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'email', 'institute', 'department', 'profession', 'client_name', 'process_status', DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration"))->with(['paymentProcess', 'institute', 'department', 'profession'])->where('is_deleted', 0)->where('type_of_work','manuscript');
         $details = EntryProcessModel::select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'email', 'institute', 'department', 'profession', 'client_name', 'process_status', DB::raw("CONCAT(DATEDIFF(projectduration, entry_date), ' days') AS projectduration"))
-        // DB::raw("CONCAT(DATEDIFF(projectduration, entry_date), ' days ', MOD(TIMESTAMPDIFF(HOUR, entry_date, projectduration), 24), ' hrs') AS projectduration"))
+            // DB::raw("CONCAT(DATEDIFF(projectduration, entry_date), ' days ', MOD(TIMESTAMPDIFF(HOUR, entry_date, projectduration), 24), ' hrs') AS projectduration"))
             ->with(['paymentProcess', 'institute', 'department', 'profession'])->where('is_deleted', 0)
             ->whereHas('journalData', function ($query) {
                 $query->where('type', 'publication_manager');
@@ -253,16 +252,54 @@ class EntryProcessController extends Controller
             return response()->json([
                 'details' => $phoneDetails,
             ]);
-
         } catch (\Exception $e) {
-            Log::error('Error in findPhoneNumber: '.$e->getMessage());
+            Log::error('Error in findPhoneNumber: ' . $e->getMessage());
 
             return response()->json(['error' => 'Something went wrong'], 500);
         }
     }
 
+    private array $trackingStatusCache = [];
+    private const ROLE_STATUS_MAP = [
+        'team_coordinator' => [
+            'TC',
+            'Project Manager, TC',
+            'Project Manager, TC, Reviewer',
+            'Project Manager, TC, writer',
+            'TC, Writer, Reviewer, Statistician',
+        ],
+        'sme' => [
+            'Writer',
+            'Reviewer',
+            'Statistician',
+            'Writer, Reviewer',
+            'Writer, Statistician',
+            'Reviewer, Statistician',
+            'Writer, Reviewer, Statistician',
+            'SME',
+        ],
+        'publication_manager' => ['Publication Manager'],
+        'project_manager' => ['Project Manager', 'Project Withdrawn'],
+    ];
+    private function filterByTrackingRole($items, array $allowedStatuses, string $idField = 'project_id')
+    {
+        return collect($items)->filter(function ($item) use ($allowedStatuses, $idField) {
+            $pid = is_array($item) ? ($item[$idField] ?? null) : ($item->{$idField} ?? null);
+
+            if (! $pid) {
+                return false;
+            }
+
+            return in_array($this->getTrackingStatusByProjectId($pid), $allowedStatuses, true);
+        })->values();
+    }
+
     private function getTrackingStatusByProjectId($id)
     {
+        if (array_key_exists($id, $this->trackingStatusCache)) {
+            return $this->trackingStatusCache[$id];
+        }
+
         $tracking = null;
 
         $peopleIds_pm = People::where('position', '27')->pluck('id')->toArray();
@@ -282,151 +319,171 @@ class EntryProcessController extends Controller
         $writer = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
         $writerNeedSupport = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->where('status', 'need_support')
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $reviewer = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'reviewer')
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
         $reviewerNeedSupport = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'reviewer')
             ->where('status', 'need_support')
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $writerRejected = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->where('status', 'rejected')
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $reviewerRejected = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'reviewer')
             ->where('status', 'rejected')
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $statistician = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'statistican')
             ->whereIn('status', ['to_do', 'on_going', 'correction', 'rejected', 'plag_correction'])
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
         $statisticianNeedSupport = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'statistican')
             ->where('status', 'need_support')
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $rejected = ProjectAssignDetails::where('project_id', $id)
             ->where('status', 'rejected')
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $correction = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'team_coordinator')
             ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
-            ->whereHas('projectData', fn ($q) => $q->where('process_status', '!=', 'completed'))
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
-        // SME / Completion checks
+        // Completion checks
         $writerCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'writer')
             ->whereIn('status', ['need_support', 'completed'])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $reviewerCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'reviewer')
             ->whereIn('status', ['need_support', 'completed'])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
         $statisticianCompleted = ProjectAssignDetails::where('project_id', $id)
             ->where('type', 'statistican')
             ->whereIn('status', ['need_support', 'completed'])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
+        // SME Publication Manager checks
         $smePublicationCompleted = ProjectAssignDetails::where('project_id', $id)
             ->whereIn('created_by', $peopleIds_pm)
             ->where('type', 'publication_manager')
             ->whereIn('status', [
-                'pending_author', 'rejected', 'reviewer_comments',
-                'resubmission', 'published', 'submitted',
+                'pending_author',
+                'rejected',
+                'reviewer_comments',
+                'resubmission',
+                'published',
+                'submitted',
             ])
+            ->whereHas('projectData', fn($q) => $q->where('process_status', '!=', 'completed'))
             ->exists();
 
         $publicationCompleted = ProjectAssignDetails::where('project_id', $id)
             ->whereIn('created_by', $peopleIds_sme)
             ->where('type', 'publication_manager')
             ->whereIn('status', [
-                'pending_author', 'rejected', 'reviewer_comments',
-                'resubmission', 'published', 'submitted',
+                'pending_author',
+                'rejected',
+                'reviewer_comments',
+                'resubmission',
+                'published',
+                'submitted',
             ])
             ->exists();
 
-        /** -------- FINAL DECISION ORDER -------- */
+        // NEW: Check if project should be in SME phase based on your index function logic
+        $shouldBeInSME = false;
+
+        // Check for SME need_support status (matches your smelist logic)
+        $hasSMEActivity = ProjectAssignDetails::where('project_id', $id)
+            ->where('type', 'sme')
+            ->where('status', 'need_support')
+            ->whereHas('projectData', function ($query) {
+                $query->where('process_status', '!=', 'completed')
+                    ->whereDoesntHave('tcData', function ($sq) {
+                        $sq->where('status', 'correction')
+                            ->where('type', 'team_coordinator');
+                    });
+            })
+            ->exists();
+
+        // Check if any core tasks are completed (writer/reviewer/statistician)
+        $hasCompletedTasks = $writerCompleted && $reviewerCompleted || $statisticianCompleted;
+
+        // Check if SME publication manager has activity
+        $hasSMEPublicationActivity = $smePublicationCompleted;
+
+        // Determine if project is in SME phase
+        $shouldBeInSME = $hasSMEActivity || ($hasCompletedTasks && !$writer && !$reviewer && !$statistician && !$rejected);
+
+        /** -------- FINAL DECISION ORDER (REVISED) -------- */
         if ($notAssigned) {
             $tracking = 'Project Manager';
-
         } elseif ($withdrawal) {
             $tracking = 'Project Withdrawn';
         } elseif ($rejected && $writer && $reviewer && $statistician) {
             $tracking = 'TC, Writer, Reviewer, Statistician';
-
-        } elseif ($rejected === true && $reviewerRejected === false) {
-            $tracking = 'Project Manager, TC';
         } elseif ($rejected && $writerRejected) {
             $tracking = 'Project Manager, TC, Reviewer';
         } elseif ($rejected && $reviewerRejected) {
             $tracking = 'Project Manager, TC, writer';
-
+        } elseif ($rejected) {
+            $tracking = 'Project Manager, TC';
         } elseif ($writer && $reviewer && $statistician) {
             $tracking = 'Writer, Reviewer, Statistician';
-
         } elseif ($writer && $reviewer) {
             $tracking = 'Writer, Reviewer';
+        } elseif ($writer && $statistician) {
+            $tracking = 'Writer, Statistician';
+        } elseif ($reviewer && $statistician) {
+            $tracking = 'Reviewer, Statistician';
         } elseif ($reviewer) {
             $tracking = 'Reviewer';
         } elseif ($writer) {
             $tracking = 'Writer';
-        }elseif($reviewerNeedSupport || $writerNeedSupport || $statisticianNeedSupport){
-            $tracking = 'SME';
-        }elseif( $writerNeedSupport && $reviewerNeedSupport ){
+        } elseif ($statistician) {
+            $tracking = 'Statistician';
+        } elseif ($shouldBeInSME) {
+            // SME check comes BEFORE TC and inProgress
             $tracking = 'SME';
         } elseif ($correction) {
             $tracking = 'TC';
         } elseif ($inProgress) {
             $tracking = 'TC';
-        } elseif ($writer && $statistician) {
-
-            $tracking = 'Writer, Statistician';
-
-        } elseif ($reviewer && $statistician) {
-            $tracking = 'Reviewer, Statistician';
-        } elseif (($writerCompleted && $reviewerCompleted) || $smePublicationCompleted || $writerCompleted || $reviewerCompleted || $statisticianCompleted) {
-            $tracking = 'SME';
-
         } elseif ($publicationCompleted) {
             $tracking = 'Publication Manager';
-
-        } elseif ($writer) {
-            $tracking = 'Writer';
-
-        } elseif ($reviewer) {
-            $tracking = 'Reviewer';
-
-        } elseif ($statistician) {
-            $tracking = 'Statistician';
-
         } else {
             $tracking = 'Project Manager';
         }
 
-        return $tracking;
+        return $this->trackingStatusCache[$id] = $tracking;
     }
 
     public function getEmployeeName()
@@ -698,223 +755,111 @@ class EntryProcessController extends Controller
                 //     }
                 // }
 
-                // if (! is_null($request->payment_status) && trim($request->payment_status) !== '') {
-                //     // 1. Create main payment record
-                //     $details_p = new PaymentStatusModel;
-                //     $details_p->project_id = $details->id;
-                //     $details_p->payment_status = $request->payment_status;
-                //     $details_p->reference_number = $request->reference_number;
-                //     $details_p->discounts = $request->discount;
-                //     $details_p->created_by = $request->created_by;
-
-                //     $mainFiles = [];
-
-                //     // Handle main payment files
-                //     if ($request->hasFile('reference_number_file')) {
-                //         $path = public_path('payment_screenshots');
-
-                //         if (! is_dir($path)) {
-                //             mkdir($path, 0775, true);
-                //         }
-
-                //         foreach ($request->file('reference_number_file') as $file) {
-                //             $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                //                 .'_'.time().'_'.uniqid()
-                //                 .'.'.$file->extension();
-
-                //             $file->move($path, $filename);
-                //             $mainFiles[] = $filename;
-                //         }
-
-                //         // $details_p->reference_number_file = ! empty($mainFiles) ? json_encode($mainFiles) : null;
-                //         $details_p->reference_number_file = $mainFiles ?: null;
-                //     }
-
-                //     $details_p->save();
-
-                //     if ($request->has('payment_details') && is_array($request->payment_details)) {
-                //         foreach ($request->payment_details as $index => $pay) {
-                //             $paymentDetails = new PaymentDetails;
-                //             $paymentDetails->payment_id = $details_p->id;
-
-                //             $paymentDetails->payment = ! empty($pay['payment']) ? $pay['payment'] : '0';
-
-                //             // $paymentDetails->payment_type = ! empty($pay['payment_status']) ? $pay['payment_type'] : $request->payment_status;
-                //              $paymentDetails->payment_type = $pay['payment_status'] ?? $request->payment_status;
-                //             $paymentDetails->reference_number = ! empty($pay['reference_number']) ? $pay['reference_number'] : ($request->reference_number ?? '');
-
-                //             $paymentDetails->payment_date = ! empty($pay['payment_date']) ? $pay['payment_date'] : now();
-
-                //             $detailFiles = [];
-
-                //             if ($request->hasFile("payment_details.{$index}.reference_number_file")) {
-                //                 $detailFileInput = $request->file("payment_details.{$index}.reference_number_file");
-
-                //                 $detailFilesToProcess = is_array($detailFileInput) ? $detailFileInput : [$detailFileInput];
-
-                //                 foreach ($detailFilesToProcess as $file) {
-                //                     if ($file && $file->isValid()) {
-                //                         $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                //                             .'_'.time().'_'.uniqid().'_detail'
-                //                             .'.'.$file->extension();
-
-                //                         $path = public_path('payment_screenshots');
-
-                //                         if (! is_dir($path)) {
-                //                             mkdir($path, 0775, true);
-                //                         }
-
-                //                         $file->move($path, $filename);
-                //                         $detailFiles[] = $filename;
-                //                     }
-                //                 }
-
-                //                 // $paymentDetails->reference_number_file = ! empty($detailFiles) ? json_encode($detailFiles) : null;
-                //                 $paymentDetails->reference_number_file = $detailFiles ?: null;
-                //             }
-
-                //             $paymentDetails->save();
-
-                //             $created = User::with('createdByUser')->find($request->created_by);
-                //             $employee = $created?->employee_name ?? 'Mohamed Ali';
-                //             $creator = $created?->createdByUser?->name ?? 'Admin';
-
-                //             $paymentTypeForActivity = ! empty($pay['payment_type']) ? $pay['payment_type'] : $request->payment_status;
-                //             $activityText = "Payment marked as {$paymentTypeForActivity} by {$employee} ({$creator})";
-
-                //             $activity = new ProjectActivity;
-                //             $activity->project_id = $details->id;
-                //             $activity->activity = $activityText;
-                //             $activity->role = $creator;
-                //             $activity->created_by = $request->created_by;
-                //             $activity->created_date = now();
-                //             $activity->save();
-                //         }
-                //     }
-                //     if (! empty($request->payment_status)) {
-                //         PaymentLogs::create([
-                //             'project_id' => $details->id,
-                //             'payment_id' => $details_p->id,
-                //             'payment_status' => $request->payment_status,
-                //             'reference_number' => $request->reference_number,
-                //             'reference_number_file' => $details_p->reference_number_file,
-                //             'created_by' => $request->created_by,
-                //             'created_date' => now(),
-                //         ]);
-                //     }
-                // }
-
-
                 if (! is_null($request->payment_status) && trim($request->payment_status) !== '') {
-    // 1. Create main payment record
-    $details_p = new PaymentStatusModel;
-    $details_p->project_id = $details->id;
-    
-    // Use the nested payment_status if available, otherwise use the top-level one
-    $paymentStatusToUse = $request->payment_details[0]['payment_status'] ?? $request->payment_status;
-    $details_p->payment_status = $paymentStatusToUse;
-    
-    $details_p->reference_number = $request->reference_number;
-    $details_p->discounts = $request->discount;
-    $details_p->created_by = $request->created_by;
+                    // 1. Create main payment record
+                    $details_p = new PaymentStatusModel;
+                    $details_p->project_id = $details->id;
+                    $details_p->payment_status = $request->payment_status;
+                    $details_p->reference_number = $request->reference_number;
+                    $details_p->discounts = $request->discount;
+                    $details_p->created_by = $request->created_by;
 
-    $mainFiles = [];
+                    $mainFiles = [];
 
-    // Handle main payment files
-    if ($request->hasFile('reference_number_file')) {
-        $path = public_path('payment_screenshots');
-
-        if (! is_dir($path)) {
-            mkdir($path, 0775, true);
-        }
-
-        foreach ($request->file('reference_number_file') as $file) {
-            $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                .'_'.time().'_'.uniqid()
-                .'.'.$file->extension();
-
-            $file->move($path, $filename);
-            $mainFiles[] = $filename;
-        }
-
-        $details_p->reference_number_file = $mainFiles ?: null;
-    }
-
-    $details_p->save();
-
-    if ($request->has('payment_details') && is_array($request->payment_details)) {
-        foreach ($request->payment_details as $index => $pay) {
-            $paymentDetails = new PaymentDetails;
-            $paymentDetails->payment_id = $details_p->id;
-
-            $paymentDetails->payment = ! empty($pay['payment']) ? $pay['payment'] : '0';
-
-            // Use the nested payment_status if available, otherwise use the top-level one
-            $paymentDetails->payment_type = $pay['payment_status'] ?? $request->payment_status;
-            
-            $paymentDetails->reference_number = ! empty($pay['reference_number']) ? $pay['reference_number'] : ($request->reference_number ?? '');
-
-            $paymentDetails->payment_date = ! empty($pay['payment_date']) ? $pay['payment_date'] : now();
-
-            $detailFiles = [];
-
-            if ($request->hasFile("payment_details.{$index}.reference_number_file")) {
-                $detailFileInput = $request->file("payment_details.{$index}.reference_number_file");
-
-                $detailFilesToProcess = is_array($detailFileInput) ? $detailFileInput : [$detailFileInput];
-
-                foreach ($detailFilesToProcess as $file) {
-                    if ($file && $file->isValid()) {
-                        $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
-                            .'_'.time().'_'.uniqid().'_detail'
-                            .'.'.$file->extension();
-
+                    // Handle main payment files
+                    if ($request->hasFile('reference_number_file')) {
                         $path = public_path('payment_screenshots');
 
                         if (! is_dir($path)) {
                             mkdir($path, 0775, true);
                         }
 
-                        $file->move($path, $filename);
-                        $detailFiles[] = $filename;
+                        foreach ($request->file('reference_number_file') as $file) {
+                            $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                                . '_' . time() . '_' . uniqid()
+                                . '.' . $file->extension();
+
+                            $file->move($path, $filename);
+                            $mainFiles[] = $filename;
+                        }
+
+                        // $details_p->reference_number_file = ! empty($mainFiles) ? json_encode($mainFiles) : null;
+                        $details_p->reference_number_file = $mainFiles ?: null;
+                    }
+
+                    $details_p->save();
+
+                    if ($request->has('payment_details') && is_array($request->payment_details)) {
+                        foreach ($request->payment_details as $index => $pay) {
+                            $paymentDetails = new PaymentDetails;
+                            $paymentDetails->payment_id = $details_p->id;
+
+                            $paymentDetails->payment = ! empty($pay['payment']) ? $pay['payment'] : '0';
+
+                            $paymentDetails->payment_type = ! empty($pay['payment_type']) ? $pay['payment_type'] : $request->payment_status;
+
+                            $paymentDetails->reference_number = ! empty($pay['reference_number']) ? $pay['reference_number'] : ($request->reference_number ?? '');
+
+                            $paymentDetails->payment_date = ! empty($pay['payment_date']) ? $pay['payment_date'] : now();
+
+                            $detailFiles = [];
+
+                            if ($request->hasFile("payment_details.{$index}.reference_number_file")) {
+                                $detailFileInput = $request->file("payment_details.{$index}.reference_number_file");
+
+                                $detailFilesToProcess = is_array($detailFileInput) ? $detailFileInput : [$detailFileInput];
+
+                                foreach ($detailFilesToProcess as $file) {
+                                    if ($file && $file->isValid()) {
+                                        $filename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)
+                                            . '_' . time() . '_' . uniqid() . '_detail'
+                                            . '.' . $file->extension();
+
+                                        $path = public_path('payment_screenshots');
+
+                                        if (! is_dir($path)) {
+                                            mkdir($path, 0775, true);
+                                        }
+
+                                        $file->move($path, $filename);
+                                        $detailFiles[] = $filename;
+                                    }
+                                }
+
+                                // $paymentDetails->reference_number_file = ! empty($detailFiles) ? json_encode($detailFiles) : null;
+                                $paymentDetails->reference_number_file = $detailFiles ?: null;
+                            }
+
+                            $paymentDetails->save();
+
+                            $created = User::with('createdByUser')->find($request->created_by);
+                            $employee = $created?->employee_name ?? 'Mohamed Ali';
+                            $creator = $created?->createdByUser?->name ?? 'Admin';
+
+                            $paymentTypeForActivity = ! empty($pay['payment_type']) ? $pay['payment_type'] : $request->payment_status;
+                            $activityText = "Payment marked as {$paymentTypeForActivity} by {$employee} ({$creator})";
+
+                            $activity = new ProjectActivity;
+                            $activity->project_id = $details->id;
+                            $activity->activity = $activityText;
+                            $activity->role = $creator;
+                            $activity->created_by = $request->created_by;
+                            $activity->created_date = now();
+                            $activity->save();
+                        }
+                    }
+                    if (! empty($request->payment_status)) {
+                        PaymentLogs::create([
+                            'project_id' => $details->id,
+                            'payment_id' => $details_p->id,
+                            'payment_status' => $request->payment_status,
+                            'reference_number' => $request->reference_number,
+                            'reference_number_file' => $details_p->reference_number_file,
+                            'created_by' => $request->created_by,
+                            'created_date' => now(),
+                        ]);
                     }
                 }
-
-                $paymentDetails->reference_number_file = $detailFiles ?: null;
-            }
-
-            $paymentDetails->save();
-
-            $created = User::with('createdByUser')->find($request->created_by);
-            $employee = $created?->employee_name ?? 'Mohamed Ali';
-            $creator = $created?->createdByUser?->name ?? 'Admin';
-
-            // Use the nested payment_status for activity text
-            $paymentTypeForActivity = $pay['payment_status'] ?? $request->payment_status;
-            $activityText = "Payment marked as {$paymentTypeForActivity} by {$employee} ({$creator})";
-
-            $activity = new ProjectActivity;
-            $activity->project_id = $details->id;
-            $activity->activity = $activityText;
-            $activity->role = $creator;
-            $activity->created_by = $request->created_by;
-            $activity->created_date = now();
-            $activity->save();
-        }
-    }
-    
-    if (! empty($request->payment_status)) {
-        PaymentLogs::create([
-            'project_id' => $details->id,
-            'payment_id' => $details_p->id,
-            'payment_status' => $paymentStatusToUse, // Use the same status here too
-            'reference_number' => $request->reference_number,
-            'reference_number_file' => $details_p->reference_number_file,
-            'created_by' => $request->created_by,
-            'created_date' => now(),
-        ]);
-    }
-}
 
                 if ($request->has('payment_freelancer') && is_array($request->payment_freelancer)) {
                     foreach ($request->payment_freelancer as $pay) {
@@ -962,7 +907,7 @@ class EntryProcessController extends Controller
 
                         Log::info("Email sent to writer ({$userDetails->email_address}).");
                     } catch (\Exception $e) {
-                        Log::error('Failed to send email to writer: '.$e->getMessage());
+                        Log::error('Failed to send email to writer: ' . $e->getMessage());
                     }
                 } else {
                     $activity = new ProjectActivity;
@@ -992,7 +937,7 @@ class EntryProcessController extends Controller
 
                         Log::info("Email sent to writer ({$userDetails->email_address}).");
                     } catch (\Exception $e) {
-                        Log::error('Failed to send email to writer: '.$e->getMessage());
+                        Log::error('Failed to send email to writer: ' . $e->getMessage());
                     }
                 }
 
@@ -1044,7 +989,7 @@ class EntryProcessController extends Controller
 
                         $activity = new ProjectActivity;
                         $activity->project_id = $details->id;
-                        $activity->activity = 'Project assigned to '.$userDetails->employee_name.' (writer)';
+                        $activity->activity = 'Project assigned to ' . $userDetails->employee_name . ' (writer)';
                         $activity->role = $creator;
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -1070,7 +1015,7 @@ class EntryProcessController extends Controller
                                 Log::info("Email successfully queued to employee name ({$created->employee_name}).");
                                 Log::info("Email successfully queued to writer ({$userDetails->email_address}).");
                             } catch (\Exception $e) {
-                                Log::error('Failed to send email to writer: '.$e->getMessage(), [
+                                Log::error('Failed to send email to writer: ' . $e->getMessage(), [
                                     'exception' => $e,
                                     'trace' => $e->getTraceAsString(),
                                 ]);
@@ -1118,7 +1063,7 @@ class EntryProcessController extends Controller
                         $creator = $created?->createdByUser?->name ?? 'Admin';
                         $activity = new ProjectActivity;
                         $activity->project_id = $details->id;
-                        $activity->activity = 'Project assigned to '.$userDetails->employee_name.' '.'(reviewer)';
+                        $activity->activity = 'Project assigned to ' . $userDetails->employee_name . ' ' . '(reviewer)';
                         $activity->role = $creator;
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -1140,7 +1085,7 @@ class EntryProcessController extends Controller
 
                                 Log::info("Email sent to reviewer ({$userDetails->email_address}).");
                             } catch (\Exception $e) {
-                                Log::error('Failed to send email to reviewer: '.$e->getMessage());
+                                Log::error('Failed to send email to reviewer: ' . $e->getMessage());
                             }
                         } else {
                             Log::warning("User not found for reviewer ID: {$user['reviewer']}");
@@ -1185,7 +1130,7 @@ class EntryProcessController extends Controller
                         $creator = $created?->createdByUser?->name ?? 'Admin';
                         $activity = new ProjectActivity;
                         $activity->project_id = $details->id;
-                        $activity->activity = 'Project assigned to '.$userDetails->employee_name.' '.'(statistican)';
+                        $activity->activity = 'Project assigned to ' . $userDetails->employee_name . ' ' . '(statistican)';
                         $activity->role = $creator;
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -1207,7 +1152,7 @@ class EntryProcessController extends Controller
 
                                 Log::info("Email sent to statistican ({$userDetails->email_address}).");
                             } catch (\Exception $e) {
-                                Log::error('Failed to send email to statistican: '.$e->getMessage());
+                                Log::error('Failed to send email to statistican: ' . $e->getMessage());
                             }
                         } else {
                             Log::warning("User not found for statistican ID: {$user['statistican']}");
@@ -1281,8 +1226,8 @@ class EntryProcessController extends Controller
 
                         if ($userDetails) {
                             if (! empty($userDetails->email_address)) {
-                                $durationKey = $key.'_project_duration';
-                                $durationUnit = $key.'_duration_unit';
+                                $durationKey = $key . '_project_duration';
+                                $durationUnit = $key . '_duration_unit';
                                 try {
                                     Mail::to($userDetails->email_address)->send(new AssignmentNotificationMail([
                                         'name' => $userDetails->employee_name,
@@ -1296,7 +1241,7 @@ class EntryProcessController extends Controller
                                     ]));
                                     Log::info("Email sent to {$role} ({$userDetails->email_address}).");
                                 } catch (\Exception $e) {
-                                    Log::error("Failed to send email to {$role}: ".$e->getMessage());
+                                    Log::error("Failed to send email to {$role}: " . $e->getMessage());
                                 }
                             } else {
                                 Log::error("{$role} email is empty or invalid.");
@@ -1378,86 +1323,86 @@ class EntryProcessController extends Controller
                 // }
 
                 if ($request->has('entryprocess_documents') && is_array($request->entryprocess_documents)) {
-    $entryprocessDocuments = []; // To store formatted document data for response
-    $defaultSpecificOption = null; // Store the first valid specificOption
+                    $entryprocessDocuments = []; // To store formatted document data for response
+                    $defaultSpecificOption = null; // Store the first valid specificOption
 
-    foreach ($request->entryprocess_documents as $document) {
-        // Validate that specificOption and file keys exist and are arrays
-        if (isset($document['file']) && is_array($document['file'])) {
-            if (! empty($document['specificOption'])) {
-                if (is_array($document['specificOption'])) {
-                    Log::info('test1');
-                    $defaultSpecificOption = $document['specificOption'];
-                } elseif (is_string($document['specificOption'])) {
-                    Log::info('test2');
-                    $defaultSpecificOption = [$document['specificOption']];
-                    $document['specificOption'] = $defaultSpecificOption;
-                }
-            } elseif (isset($defaultSpecificOption)) {
-                Log::info('test3');
-                $document['specificOption'] = $defaultSpecificOption;
-            }
-            $fileNames = [];
+                    foreach ($request->entryprocess_documents as $document) {
+                        // Validate that specificOption and file keys exist and are arrays
+                        if (isset($document['file']) && is_array($document['file'])) {
+                            if (! empty($document['specificOption'])) {
+                                if (is_array($document['specificOption'])) {
+                                    Log::info('test1');
+                                    $defaultSpecificOption = $document['specificOption'];
+                                } elseif (is_string($document['specificOption'])) {
+                                    Log::info('test2');
+                                    $defaultSpecificOption = [$document['specificOption']];
+                                    $document['specificOption'] = $defaultSpecificOption;
+                                }
+                            } elseif (isset($defaultSpecificOption)) {
+                                Log::info('test3');
+                                $document['specificOption'] = $defaultSpecificOption;
+                            }
+                            $fileNames = [];
 
-            $entryDocument = new EntryDocument;
-            $entryDocument->entry_process_model_id = $details->id;
-            $entryDocument->select_document = json_encode($document['specificOption'], JSON_UNESCAPED_UNICODE);
-            $entryDocument->created_by = $request->created_by ?? '-';
-            $entryDocument->save();
+                            $entryDocument = new EntryDocument;
+                            $entryDocument->entry_process_model_id = $details->id;
+                            $entryDocument->select_document = json_encode($document['specificOption'], JSON_UNESCAPED_UNICODE);
+                            $entryDocument->created_by = $request->created_by ?? '-';
+                            $entryDocument->save();
 
-            foreach ($document['file'] as $file) {
-                if (! empty($file)) {
-                    $originalName = $file->getClientOriginalName();
-                    $originalExtension = $file->getClientOriginalExtension();
-                    
-                    // Get the original filename without extension
-                    $originalFilename = pathinfo($originalName, PATHINFO_FILENAME);
-                    // Clean the filename (remove special characters)
-                    $cleanedName = preg_replace('/[^a-z0-9]+/i', '-', $originalFilename);
-                    
-                    // Create filename in format: m-{customId}-{cleanedName}.{extension}
-                    // Where {customId} is the project_id from request (e.g., "012")
-                    $uniqueName =  $customId . '-' . $cleanedName . '.' . $originalExtension;
-                    
-                    $path = public_path('uploads');
-                    
-                    if (! is_dir($path)) {
-                        mkdir($path, 0775, true);
+                            foreach ($document['file'] as $file) {
+                                if (! empty($file)) {
+                                    $originalName = $file->getClientOriginalName();
+                                    $originalExtension = $file->getClientOriginalExtension();
+
+                                    // Get the original filename without extension
+                                    $originalFilename = pathinfo($originalName, PATHINFO_FILENAME);
+                                    // Clean the filename (remove special characters)
+                                    $cleanedName = preg_replace('/[^a-z0-9]+/i', '-', $originalFilename);
+
+                                    // Create filename in format: m-{customId}-{cleanedName}.{extension}
+                                    // Where {customId} is the project_id from request (e.g., "012")
+                                    $uniqueName =  $customId . '-' . $cleanedName . '.' . $originalExtension;
+
+                                    $path = public_path('uploads');
+
+                                    if (! is_dir($path)) {
+                                        mkdir($path, 0775, true);
+                                    }
+
+                                    // Handle duplicate filenames by adding counter
+                                    $counter = 1;
+                                    $finalName = $uniqueName;
+                                    while (file_exists($path . '/' . $finalName)) {
+                                        $finalName =  $customId . '-' . $cleanedName . '_' . $counter . '.' . $originalExtension;
+                                        $counter++;
+                                    }
+
+                                    $file->move($path, $finalName);
+
+                                    $documentList = new EntryDocumentsList;
+                                    $documentList->document_id = $entryDocument->id;
+                                    $documentList->file = $finalName;
+                                    $documentList->original_name = $originalName;
+                                    $documentList->save();
+
+                                    $fileNames[] = $finalName;
+                                }
+                            }
+
+                            // Format data for the response
+                            $entryprocessDocuments[] = [
+                                'specificOption' => $document['specificOption'],
+                                'file' => $fileNames,
+                            ];
+                        }
                     }
-                    
-                    // Handle duplicate filenames by adding counter
-                    $counter = 1;
-                    $finalName = $uniqueName;
-                    while (file_exists($path . '/' . $finalName)) {
-                        $finalName =  $customId . '-' . $cleanedName . '_' . $counter . '.' . $originalExtension;
-                        $counter++;
-                    }
-                    
-                    $file->move($path, $finalName);
-                    
-                    $documentList = new EntryDocumentsList;
-                    $documentList->document_id = $entryDocument->id;
-                    $documentList->file = $finalName;
-                    $documentList->original_name = $originalName;
-                    $documentList->save();
-                    
-                    $fileNames[] = $finalName;
+
+                    // Return a successful response
+                    return response()->json([
+                        'entryprocess_documents' => $entryprocessDocuments,
+                    ], 200);
                 }
-            }
-
-            // Format data for the response
-            $entryprocessDocuments[] = [
-                'specificOption' => $document['specificOption'],
-                'file' => $fileNames,
-            ];
-        }
-    }
-
-    // Return a successful response
-    return response()->json([
-        'entryprocess_documents' => $entryprocessDocuments,
-    ], 200);
-}
             });
             // Return response with project_id
 
@@ -1572,7 +1517,7 @@ class EntryProcessController extends Controller
         // Process documents
         if ($details && $details->documents) {
             $documents = $details->documents
-                ->flatMap(fn ($doc) => json_decode($doc->select_document, true))
+                ->flatMap(fn($doc) => json_decode($doc->select_document, true))
                 ->unique()
                 ->values();
 
@@ -2099,9 +2044,9 @@ class EntryProcessController extends Controller
                 ->get();
 
             foreach ($downloadfiles as $file) {
-                $filePath = public_path('uploads/'.$file->file);
+                $filePath = public_path('uploads/' . $file->file);
                 if (File::exists($filePath)) {
-                    $filePaths[] = url('uploads/'.$file->file);
+                    $filePaths[] = url('uploads/' . $file->file);
                 }
             }
         } else {
@@ -2117,9 +2062,9 @@ class EntryProcessController extends Controller
                 ->get();
 
             foreach ($downloadfiles as $file) {
-                $filePath = public_path('activity_files/'.$file->files);
+                $filePath = public_path('activity_files/' . $file->files);
                 if (File::exists($filePath)) {
-                    $filePaths[] = url('activity_files/'.$file->files);
+                    $filePaths[] = url('activity_files/' . $file->files);
                 }
             }
         }
@@ -2167,1020 +2112,17 @@ class EntryProcessController extends Controller
         }
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    // public function update(Request $request, $id)
-    // {
 
-    //     $selectedOption = $request->type_of_work;
-    //     $customId = $request->project_id;
-
-    //     DB::transaction(function () use ($selectedOption, $request, &$customId, $id) {
-    //         $details = EntryProcessModel::find($id);
-    //         if (! $details) {
-    //             throw new \Exception('Entry not found');
-    //         }
-    //         $roles = [];
-
-    //         if (! empty($request->writer) && $details->writer !== $request->writer) {
-    //             $roles['writer'] = 'Writer';
-    //         }
-    //         if (! empty($request->reviewer) && $details->reviewer !== $request->reviewer) {
-    //             $roles['reviewer'] = 'Reviewer';
-    //         }
-    //         if (! empty($request->statistican) && $details->statistican !== $request->statistican) {
-    //             $roles['statistican'] = 'Statistician';
-    //         }
-
-    //         $roles = [
-    //             'writer' => 'Writer',
-    //             'reviewer' => 'Reviewer',
-    //             'statistican' => 'Statistician',
-    //             'journal' => 'Publication Manager',
-    //         ];
-
-    //         foreach ($roles as $key => $role) {
-    //             if (! empty($request->$key)) {
-    //                 $userDetails = User::where('id', $request->$key)->first();
-
-    //                 if ($userDetails) {
-    //                     if (! empty($userDetails->email_address)) {
-    //                         $durationKey = $key.'_project_duration';
-    //                         $durationUnit = $key.'_duration_unit';
-    //                         try {
-    //                             Mail::to($userDetails->email_address)->send(new AssignmentNotificationMail([
-    //                                 'name' => $userDetails->employee_name,
-    //                                 'role' => $role,
-    //                                 'project_id' => $customId,
-    //                                 'title' => $details->title,
-    //                                 'duration' => $details->$durationKey,
-    //                                 'unit' => $details->$durationUnit,
-    //                             ]));
-    //                             Log::info("Email sent to {$role} ({$userDetails->email_address}).");
-    //                         } catch (\Exception $e) {
-    //                             Log::error("Failed to send email to {$role}: ".$e->getMessage());
-    //                         }
-    //                     } else {
-    //                         Log::error("{$role} email is empty or invalid.");
-    //                     }
-    //                 } else {
-    //                     Log::error("{$role} not found.");
-    //                 }
-    //             } else {
-    //                 Log::error("No {$role} ID provided.");
-    //             }
-    //         }
-
-    //         if ($details->project_id !== $request->project_id) {
-    //             $duplicateProjectId = EntryProcessModel::where('project_id', $request->project_id)
-    //                 ->where('id', '!=', $id)
-    //                 ->where('is_deleted', 0)
-    //                 ->exists();
-
-    //             if ($duplicateProjectId) {
-    //                 throw new \Exception("Project ID '{$request->project_id}' is already in use.");
-    //             }
-    //         }
-
-    //         if ($details->type_of_work !== $selectedOption) {
-    //             $lastEntry = EntryProcessModel::where('type_of_work', $selectedOption)
-    //                 ->orderBy('id', 'desc')
-    //                 ->lockForUpdate()
-    //                 ->first();
-
-    //             $increment = $lastEntry ? (int) substr($lastEntry->project_id, strlen($selectedOption) + 1) + 1 : 1;
-    //             $formattedIncrement = str_pad($increment, 3, '0', STR_PAD_LEFT);
-    //             $customId = $selectedOption.'-'.$formattedIncrement;
-    //         } else {
-    //             $customId = $details->project_id;
-    //         }
-
-    //         $details->entry_date = $request->entry_date;
-    //         $details->title = $request->title;
-    //         $details->project_id = $customId;
-    //         $details->type_of_work = $request->type_of_work;
-    //         $details->others = $request->others;
-    //         $details->client_name = $request->client_name;
-    //         $details->email = $request->email;
-    //         $details->contact_number = $request->contact_number;
-    //         $details->institute = $request->institute;
-    //         $details->department = $request->department;
-    //         $details->profession = $request->profession;
-    //         $details->budget = $request->budget;
-    //         $details->process_status = $request->process_status;
-    //         $details->process_date = $request->process_date;
-    //         $details->hierarchy_level = $request->hierarchy_level;
-    //         $details->comment_box = $request->comment_box;
-    //         $details->else_project_manager = $request->else_project_manager;
-    //         $details->status = $request->status ?? $details->status;
-    //         $details->is_deleted = $request->is_deleted ?? $details->is_deleted;
-    //         // $details->created_by = $request->created_by;
-    //         $details->projectduration = $request->project_duration;
-    //         $details->save();
-
-    //         // $userDetails = User::find($writer);
-    //         // if ($request->created_by != '86') {
-    //         //     $activity = new ProjectActivity;
-    //         //     $activity->project_id = $details->id;
-    //         //     $activity->activity = 'Project has edited ';
-    //         //     $activity->created_by = $request->created_by;
-    //         //     $activity->created_date = now();
-    //         //     $activity->save();
-    //         // }
-    //         $created = User::with('createdByUser')->find($request->created_by);
-    //         $creator = $created?->createdByUser?->name ?? 'Admin';
-    //         if ($request->created_by != '86') {
-
-    //             ProjectActivity::firstOrCreate(
-    //                 [
-    //                     'project_id' => $details->id,
-    //                     'activity' => 'Project has edited ',
-    //                     'created_by' => $request->created_by,
-    //                     'role' => $creator,
-    //                 ],
-    //                 [
-    //                     'created_date' => now(),
-    //                 ]
-    //             );
-    //         }
-
-    //         if ($request->process_status) {
-
-    //             $exists = ProjectActivity::where('project_id', $details->id)
-    //                 ->where('activity', 'project process status  marked as '.$request->process_status)
-    //                 ->exists();
-
-    //             // if (! $exists) {
-    //             $activity = new ProjectActivity;
-    //             $activity->project_id = $details->id;
-    //             $activity->activity = 'project process status  marked as '.$request->process_status;
-    //             $activity->role = $creator;
-    //             $activity->created_by = $request->created_by;
-    //             $activity->created_date = now();
-    //             $activity->save();
-    //             // }
-    //         }
-
-    //         if ($request->process_status === 'withdrawal') {
-
-    //             $positions = [13, 14, 'Admin'];
-
-    //             $users = User::whereIn('position', $positions)
-    //                 ->select('id', 'employee_name', 'employee_type', 'position', 'department', 'date_of_joining', 'phone_number', 'email_address', 'profile_image')
-    //                 ->get()
-    //                 ->keyBy('position');
-
-    //             $emails = [
-    //                 'projectManager' => $users->get(13)?->email_address,
-    //                 'teamManager' => $users->get(14)?->email_address,
-
-    //                 'adminEmail' => $users->get('Admin')?->email_address,
-
-    //             ];
-
-    //             $employeedetails = User::with(['createdByUser'])->select('id', 'employee_name', 'employee_type', 'position', 'department', 'date_of_joining', 'phone_number', 'email_address', 'profile_image')->where('id', $request->created_by)->first();
-    //             $projectDetails = EntryProcessModel::select('id', 'entry_date', 'title', 'project_id', 'type_of_work', 'email', 'institute', 'department', 'profession', 'budget', 'process_status', 'journal', 'journal_status_date', 'journal_assigned_date', 'journal_status', 'hierarchy_level', 'writer', 'writer_status', 'writer_assigned_date', 'writer_status_date', 'reviewer', 'reviewer_assigned_date', 'reviewer_status', 'reviewer_status_date', 'statistican', 'statistican_assigned_date', 'statistican_status', 'statistican_status_date', 'created_by', 'project_status', 'assign_by', 'assign_date', 'projectduration')->where('id', $id)->first();
-
-    //             if (! empty($emails['projectManager']) && ! empty($emails['teamManager']) && ! empty($emails['adminEmail']) && ! empty($employeedetails->email_address)) {
-    //                 try {
-    //                     // Send email to writer with CC to others
-    //                     Mail::to($emails['projectManager'], $emails['teamManager'])
-    //                         ->cc($emails['adminEmail'])
-    //                         ->send(new TaskCompleteEmail([
-    //                             'projectManagerEmail' => $emails['projectManager'],
-    //                             'teamManagerEmail' => $emails['teamManager'],
-    //                             'adminEmail' => $emails['adminEmail'],
-
-    //                             'employee_name' => $employeedetails->employee_name,
-    //                             'role' => $employeedetails->createdByUser?->name,
-
-    //                             'project_id' => $projectDetails->project_id,
-    //                             'status' => $request->process_status,
-    //                             'detail_name' => $request->process_status,
-    //                         ]));
-
-    //                     Log::info('Email sent to project manager and team manager');
-    //                 } catch (\Exception $e) {
-    //                     Log::error('Mail failed: '.$e->getMessage());
-
-    //                 }
-
-    //             }
-    //         }
-
-    //         //payment update
-    //         if (! is_null($request->payment_status) && trim($request->payment_status) !== '') {
-    //             Log::info('Entering payment_status condition', ['payment_status' => $request->payment_status]);
-    //             $details_p = PaymentStatusModel::where('id', $request->payment_id)->first();
-
-    //             if ($details_p) {
-    //                 Log::info('Updating existing payment status', ['payment_id' => $request->payment_id]);
-    //                 // $details_p->project_id = $details->id;
-    //                 $details_p->payment_status = $request->payment_status;
-    //                 $details_p->created_by = $request->created_by;
-    //                 $details_p->save();
-
-    //                 // $userDetails = User::find($writer);
-    //                 // if ($request->created_by != '86') {
-    //                 //     $activity = new ProjectActivity;
-    //                 //     $activity->project_id = $details->id;
-    //                 //     $activity->activity = 'Payment marked as '.$request->payment_status;
-    //                 //     $activity->created_by = $request->created_by;
-    //                 //     $activity->created_date = now();
-    //                 //     $activity->save();
-    //                 // }
-
-    //                 // if ($request->created_by != '86') {
-
-    //                 //     ProjectActivity::firstOrCreate(
-    //                 //         [
-    //                 //             'project_id' => $details->id,
-    //                 //             'activity' => 'Payment marked as '.$request->payment_status,
-    //                 //             'created_by' => $request->created_by,
-    //                 //         ],
-    //                 //         [
-    //                 //             'created_date' => now(),
-    //                 //         ]
-    //                 //     );
-    //                 // }
-
-    //                 $created = User::with('createdByUser')->find($request->created_by);
-
-    //                 $employee = $created?->employee_name ?? 'Mohamed Ali';
-    //                 $creator = $created?->createdByUser?->name ?? 'Admin';
-    //                 $activityText = "Payment marked as {$request->payment_status} by {$employee} ({$creator})";
-    //                 if ($request->created_by != 86) {
-
-    //                     ProjectActivity::firstOrCreate(
-    //                         [
-    //                             'project_id' => $details->id,
-    //                             'activity' => $activityText,
-    //                             'role' => $creator,
-    //                             'created_by' => $request->created_by,
-    //                         ],
-    //                         [
-    //                             'created_date' => now(),
-    //                         ]
-    //                     );
-    //                 }
-
-    //             } else {
-    //                 Log::info('Creating new payment status', ['project_id' => $details->id]);
-
-    //                 $details_p = new PaymentStatusModel;
-    //                 $details_p->project_id = $details->id;
-    //                 $details_p->payment_status = $request->payment_status;
-    //                 $details_p->created_by = $request->created_by;
-    //                 $details_p->save();
-    //             }
-    //             if (! empty($request->payment_details) && is_array($request->payment_details)) {
-    //                 foreach ($request->payment_details as $pay) {
-    //                     // Check if the payment_detail already exists by its ID
-    //                     if (isset($pay['id']) && $pay['id']) {
-    //                         // If the ID exists, update the record
-    //                         $paymentDetails = PaymentDetails::find($pay['id']);
-
-    //                         // Ensure the payment detail exists before updating
-    //                         if ($paymentDetails) {
-    //                             $paymentDetails->payment = $pay['payment'] ?? $paymentDetails->payment;
-    //                             $paymentDetails->payment_date = $pay['payment_date'] ?? $paymentDetails->payment_date;
-
-    //                             // Only update payment_type if it was previously null
-    //                             if ($paymentDetails->payment_type === null) {
-    //                                 $paymentDetails->payment_type = $request->payment_status ?? $paymentDetails->payment_type;
-    //                             }
-
-    //                             $paymentDetails->save();
-    //                         }
-    //                     } else {
-    //                         // If no ID, create a new payment detail record
-    //                         $existingPayment = PaymentDetails::where('payment_id', $details_p->id)
-    //                             ->where('payment', $pay['payment'] ?? null)
-    //                             ->where('payment_date', $pay['payment_date'] ?? null)
-    //                             ->where('payment_type', $request->payment_status ?? null)
-    //                             ->first();
-
-    //                         if (! $existingPayment) {
-    //                             $paymentDetails = new PaymentDetails;
-    //                             $paymentDetails->payment_id = $details_p->id;
-    //                             $paymentDetails->payment = $pay['payment'] ?? null;
-    //                             $paymentDetails->payment_date = $pay['payment_date'] ?? null;
-    //                             $paymentDetails->payment_type = $request->payment_status ?? null;
-    //                             $paymentDetails->save();
-    //                         }
-    //                     }
-    //                 }
-    //             } else {
-    //                 Log::error('payment_details is either null or not an array', ['request_data' => $request->all()]);
-    //             }
-
-    //             // Add new payment details if provided
-    //             if ($request->has('new_payment_details') && is_array($request->new_payment_details)) {
-    //                 foreach ($request->new_payment_details as $newPay) {
-    //                     $existingNewPayment = PaymentDetails::where('payment_id', $details_p->id)
-    //                         ->where('payment', $newPay['payment'] ?? null)
-    //                         ->where('payment_date', $newPay['payment_date'] ?? null)
-    //                         ->where('payment_type', $request->payment_status ?? null)
-    //                         ->first();
-
-    //                     if (! $existingNewPayment) {
-    //                         $newPaymentDetails = new PaymentDetails;
-    //                         $newPaymentDetails->payment_id = $details_p->id;
-    //                         $newPaymentDetails->payment = $newPay['payment'] ?? null;
-    //                         $newPaymentDetails->payment_date = $newPay['payment_date'] ?? null;
-    //                         $newPaymentDetails->payment_type = $request->payment_status ?? null;
-    //                         $newPaymentDetails->save();
-    //                     }
-    //                 }
-    //             }
-
-    //             $paymentLog = PaymentLogs::where('project_id', $request->project_id)
-    //                 ->where('payment_id', $details_p->id)
-    //                 ->where('payment_status', $request->payment_status)
-    //                 ->first();
-
-    //             if ($paymentLog) {
-    //                 $paymentLog->created_date = date('Y-m-d H:i:s'); // Current timestamp
-    //                 $paymentLog->save();
-    //             } else {
-    //                 PaymentLogs::create([
-    //                     'project_id' => $details->id,
-    //                     'payment_id' => $details_p->id,
-    //                     'payment_status' => $request->payment_status,
-    //                     'created_by' => $request->created_by,
-    //                     'created_date' => date('Y-m-d H:i:s'), // Current timestamp
-    //                 ]);
-    //             }
-    //         }
-    //         //payment end
-
-    //         // $activity = new ProjectActivity;
-    //         // $activity->project_id = $details->id;
-    //         // $activity->activity = 'updated successfully';
-    //         // $activity->created_by = $request->created_by;
-    //         // $activity->created_date = date('Y-m-d H:i:s');
-    //         // $activity->save();
-
-    //         // ProjectActivity::firstOrCreate(
-    //         //     [
-    //         //         'project_id' => $details->id,
-    //         //         'activity' => 'updated successfully',
-    //         //         'created_by' => $request->created_by,
-    //         //     ],
-    //         //     [
-    //         //         'created_date' => now(),
-    //         //     ]
-    //         // );
-
-    //         if (! empty($request->process_status)) {
-    //             $existingStatus = ProjectViewStatus::where('project_id', $details->id)
-    //                 ->where('project_status', $request->process_status)
-    //                 ->where('created_by', $request->created_by)
-    //                 ->latest()
-    //                 ->first();
-
-    //             if (! $existingStatus) {
-    //                 $comments = new ProjectViewStatus;
-    //                 $comments->project_id = $details->id;
-    //                 $comments->project_status = $request->process_status;
-    //                 $comments->created_by = $request->created_by;
-    //                 $comments->created_date = date('Y-m-d H:i:s');
-    //                 $comments->save();
-    //             }
-    //         }
-
-    //         if (! empty($request->comment_box)) {
-
-    //             $existingComment = Commends::where('project_id', $details->id)
-    //                 ->where('assignee', $request->created_by)
-    //                 ->first();
-
-    //             if ($existingComment) {
-    //                 $existingComment->commend_box = $request->comment_box ?? $existingComment->commend_box;
-    //                 $existingComment->save();
-    //             } else {
-    //                 $comments = new Commends;
-    //                 $comments->project_id = $details->id;
-    //                 $comments->commend_box = $request->comment_box ?? null;
-    //                 $comments->created_by = $request->created_by;
-    //                 $comments->created_date = date('Y-m-d H:i:s');
-    //                 $comments->assignee = $request->created_by;
-    //                 $comments->save();
-    //             }
-    //         }
-
-    //         //project status
-    //         if (! empty($request->writer) && is_array($request->writer)) {
-    //             foreach ($request->writer as $user) {
-    //                 Log::info('check data1');
-    //                 $writer = $user['writer'] ?? null;
-    //                 $writerid = $user['writerid'] ?? null;
-
-    //                 $existingAssignment = ProjectAssignDetails::where('project_id', $details->id)
-    //                     ->where('id', $writerid)
-    //                     ->where('type', 'writer')
-    //                     ->first();
-
-    //                 $existingAssignment3 = ProjectAssignDetails::where('project_id', $details->id)
-    //                     ->where('status', 'correction')
-    //                     ->where('type', 'team_coordinator')
-    //                     // ->where('assign_user', $statistican)
-    //                     ->first();
-
-    //                 if ($existingAssignment3) {
-    //                     $existingAssignment3->assign_user = $writer;
-    //                     $existingAssignment3->assign_date = $user['writerDate'] ?? $existingAssignment3->assign_date;
-    //                     $existingAssignment3->status = $user['writerStatus'] ?? $existingAssignment->status;
-    //                     $existingAssignment3->status_date = $user['writerStatusDate'] ?? $existingAssignment3->status_date;
-    //                     $existingAssignment3->project_duration = $user['writerprojectduration'] ?? $existingAssignment3->project_duration;
-    //                     $existingAssignment3->comments = $user['writer_comment'] ?? $existingAssignment3->comments;
-    //                     $existingAssignment3->save();
-    //                 }
-
-    //                 if ($existingAssignment) {
-    //                     // Update existing record'
-    //                     $existingAssignment->assign_user = $writer;
-    //                     $existingAssignment->assign_date = $user['writerDate'] ?? $existingAssignment->assign_date;
-    //                     $existingAssignment->status = $user['writerStatus'] ?? $existingAssignment->status;
-    //                     $existingAssignment->status_date = $user['writerStatusDate'] ?? $existingAssignment->status_date;
-    //                     $existingAssignment->project_duration = $user['writerprojectduration'] ?? $existingAssignment->project_duration;
-    //                     $existingAssignment->comments = $user['writer_comment'] ?? $existingAssignment->comments;
-    //                     $existingAssignment->save();
-
-    //                     $userDetails = User::where('id', $writer)->first();
-    //                     if ($userDetails) {
-    //                         try {
-    //                             Mail::to($userDetails->email_address)->send(new AssignmentNotificationMail([
-    //                                 'name' => $userDetails->employee_name,
-    //                                 'role' => 'writer',
-    //                                 'project_id' => $customId,
-    //                                 // 'title' => $details->title,
-    //                                 // 'duration' => $details->projectduration,
-    //                                 // 'unit' => $details->$durationUnit ?? null, // prevent undefined property error
-    //                             ]));
-
-    //                             Log::info("Email sent to writer ({$userDetails->email_address}).");
-    //                         } catch (\Exception $e) {
-    //                             Log::error('Failed to send email to writer: '.$e->getMessage());
-    //                         }
-    //                     } else {
-    //                         Log::warning("User not found for writer ID: {$user['writer']}");
-    //                     }
-    //                 } else {
-    //                     // Insert new record
-    //                     $assigned_d = new ProjectAssignDetails;
-    //                     $assigned_d->project_id = $details->id;
-    //                     $assigned_d->assign_user = $writer;
-    //                     $assigned_d->assign_date = $user['writerDate'];
-    //                     $assigned_d->status = $user['writerStatus'];
-    //                     $assigned_d->status_date = $user['writerStatusDate'];
-    //                     $assigned_d->project_duration = $user['writerprojectduration'];
-    //                     $assigned_d->comments = $user['writer_comment'];
-    //                     $assigned_d->type = 'writer';
-    //                     $assigned_d->created_by = $request->created_by;
-    //                     $assigned_d->save();
-
-    //                     $secondWriter = ProjectAssignDetails::where('project_id', $details->id)
-    //                         ->where('type', 'writer')
-    //                         ->select('type')
-    //                         ->get();
-    //                     $userDetails = User::where('id', $writer)->first();
-    //                     $createdByUser = User::where('id', $request->created_by)->first();
-    //                     $creator = $createdByUser?->createdByUser?->name ?? 'Admin';
-    //                     if (count($secondWriter) > 1) {
-    //                         $activity = new ProjectActivity;
-    //                         $activity->project_id = $details->id;
-    //                         $activity->activity = 'Project assigned to '.$userDetails->employee_name.' (2nd writer)  by ' . $creator;
-    //                         $activity->role = $creator;
-    //                         $activity->created_by = $request->created_by;
-    //                         $activity->created_date = now();
-    //                         $activity->save();
-    //                     }
-    //                 }
-
-    //                 $userDetails = User::find($writer);
-
-    //                 // $activity = new ProjectActivity;
-    //                 // $activity->project_id = $details->id;
-    //                 // $activity->activity = 'Project assigned to ' . $userDetails->employee_name;
-    //                 // $activity->created_by = $request->created_by;
-    //                 // $activity->created_date = now();
-    //                 // $activity->save();
-
-    //                 $existingStatus = ProjectStatus::where('project_id', $details->id)
-    //                     ->where('assign_id', $writer)
-    //                     ->first();
-
-    //                 if (! $existingStatus) {
-    //                     ProjectStatus::create([
-    //                         'project_id' => $details->id,
-    //                         'assign_id' => $writer,
-    //                     ]);
-    //                 }
-
-    //                 $existingWriterLog = ProjectLogs::where('project_id', $details->id)
-    //                     ->where('employee_id', $writer)
-    //                     ->where('status_type', 'writer')
-    //                     ->latest()
-    //                     ->first();
-
-    //                 // if (!$existingWriterLog) {
-    //                 ProjectLogs::create([
-    //                     'project_id' => $details->id,
-    //                     'employee_id' => $writer,
-    //                     'assigned_date' => $user['writerDate'] ?? null,
-    //                     'status' => $user['writerStatus'] ?? null,
-    //                     'status_date' => $user['writerStatusDate'] ?? null,
-    //                     'status_type' => 'writer',
-    //                     'assign_preview_id' => optional(ProjectLogs::where('project_id', $details->id)
-    //                         ->where('employee_id', $writer)
-    //                         ->where('status_type', 'writer')
-    //                         ->latest()
-    //                         ->first())->id,
-    //                     'created_by' => $request->created_by,
-    //                     'created_date' => date('Y-m-d H:i:s'),
-    //                 ]);
-    //             }
-    //         }
-    //         if (is_array($request->reviewer) && ! empty($request->reviewer)) {
-    //             foreach ($request->reviewer as $user) {
-    //                 $reviewer = $user['reviewer'] ?? null;
-    //                 $reviewerid = $user['reviewerid'] ?? null;
-    //                 $existingAssignment = ProjectAssignDetails::where('project_id', $details->id)
-    //                     ->where('id', $reviewerid)
-    //                     ->where('type', 'reviewer')
-    //                     ->first();
-    //                 $existingAssignment2 = ProjectAssignDetails::where('project_id', $details->id)
-    //                     ->where('status', 'correction')
-    //                     ->where('type', 'team_coordinator')
-    //                     // ->where('assign_user', $statistican)
-    //                     // ->where('type_sme', 'reviewer')
-    //                     ->first();
-
-    //                 if ($existingAssignment2) {
-    //                     $existingAssignment2->assign_user = $reviewer;
-    //                     $existingAssignment2->assign_date = $user['reviewerAssignedDate'];
-    //                     $existingAssignment2->status = $user['reviewerStatus'];
-    //                     $existingAssignment2->status_date = $user['reviewerStatusDate'];
-    //                     $existingAssignment2->project_duration = $user['reviewerProjectDuration'];
-    //                     $existingAssignment2->comments = $user['reviewer_comment'] ?? '';
-    //                     $existingAssignment2->save();
-    //                 }
-
-    //                 if ($existingAssignment) {
-    //                     $existingAssignment->assign_user = $reviewer;
-    //                     $existingAssignment->assign_date = $user['reviewerAssignedDate'];
-    //                     $existingAssignment->status = $user['reviewerStatus'];
-    //                     $existingAssignment->status_date = $user['reviewerStatusDate'];
-    //                     $existingAssignment->project_duration = $user['reviewerProjectDuration'];
-    //                     $existingAssignment->comments = $user['reviewer_comment'] ?? '';
-    //                     $existingAssignment->save();
-
-    //                     $userDetails = User::where('id', $reviewer)->first();
-    //                     if ($userDetails) {
-    //                         try {
-    //                             Mail::to($userDetails->email_address)->send(new AssignmentNotificationMail([
-    //                                 'name' => $userDetails->employee_name,
-    //                                 'role' => 'reviewer',
-    //                                 'project_id' => $customId,
-    //                                 // 'title' => $details->title,
-    //                                 // 'duration' => $details->projectduration,
-    //                                 // 'unit' => $details->$durationUnit ?? null, // prevent undefined property error
-    //                             ]));
-
-    //                             Log::info("Email sent to reviewer ({$userDetails->email_address}).");
-    //                         } catch (\Exception $e) {
-    //                             Log::error('Failed to send email to reviewer: '.$e->getMessage());
-    //                         }
-    //                     } else {
-    //                         Log::warning("User not found for reviewer ID: {$user['reviewer']}");
-    //                     }
-    //                 } else {
-    //                     // Insert new record
-    //                     $assigned_d = new ProjectAssignDetails;
-    //                     $assigned_d->project_id = $details->id;
-    //                     $assigned_d->assign_user = $user['reviewer'];
-    //                     $assigned_d->assign_date = $user['reviewerAssignedDate'];
-    //                     $assigned_d->status = $user['reviewerStatus'];
-    //                     $assigned_d->status_date = $user['reviewerStatusDate'];
-    //                     $assigned_d->project_duration = $user['reviewerProjectDuration'];
-    //                     $assigned_d->comments = $user['reviewer_comment'];
-    //                     $assigned_d->type = 'reviewer';
-    //                     $assigned_d->created_by = $request->created_by;
-    //                     $assigned_d->save();
-
-    //                     $secondReviewer = ProjectAssignDetails::where('project_id', $details->id)
-    //                         ->where('type', 'reviewer')
-    //                         ->select('type')
-    //                         ->get();
-    //                     $userDetails = User::where('id', $user['reviewer'])->first();
-    //                     $createdByUser = User::where('id', $request->created_by)->first();
-    //                     $creator = $createdByUser?->createdByUser?->name ?? 'Admin';
-    //                     if (count($secondReviewer) > 1) {
-    //                         $activity = new ProjectActivity;
-    //                         $activity->project_id = $details->id;
-    //                         $activity->activity = 'Project assigned to '.$userDetails->employee_name.' (2nd reviewer)  by ' . $creator;
-    //                         $activity->role = $creator;
-    //                         $activity->created_by = $request->created_by;
-    //                         $activity->created_date = now();
-    //                         $activity->save();
-    //                     }
-    //                 }
-
-    //                 $userDetails = User::find($user['reviewer']);
-
-    //                 // $activity = new ProjectActivity;
-    //                 // $activity->project_id = $details->id;
-    //                 // $activity->activity = 'Project assigned to ' . $userDetails->employee_name;
-    //                 // $activity->created_by = $request->created_by;
-    //                 // $activity->created_date = now();
-    //                 // $activity->save();
-
-    //                 $existingAssignment = ProjectStatus::where('project_id', $details->id)
-    //                     ->where('assign_id', $user['reviewer'])
-    //                     ->first();
-
-    //                 if ($existingAssignment) {
-    //                     Log::info('check data');
-    //                 } else {
-    //                     ProjectStatus::create([
-    //                         'project_id' => $details->id,
-    //                         'assign_id' => $user['reviewer'],
-    //                     ]);
-    //                 }
-
-    //                 $existingWriterLog = ProjectLogs::where('project_id', $details->id)
-    //                     ->where('employee_id', $user['reviewer'])
-    //                     ->where('status_type', 'reviewer')
-    //                     ->latest()
-    //                     ->first();
-
-    //                 // if (!$existingWriterLog) {
-    //                 ProjectLogs::create([
-    //                     'project_id' => $details->id,
-    //                     'employee_id' => $user['reviewer'],
-    //                     'assigned_date' => $user['reviewerAssignedDate'],
-    //                     'status' => $user['reviewerStatus'],
-    //                     'status_date' => $user['reviewerStatusDate'],
-    //                     'status_type' => 'reviewer',
-    //                     // 'assing_preview_id' => $existingWriterLog->id,
-    //                     'assign_preview_id' => optional(ProjectLogs::where('project_id', $details->id)
-    //                         ->where('employee_id', $user['reviewer'])
-    //                         ->where('status_type', 'reviewer')
-    //                         ->latest()
-    //                         ->first())->id,
-    //                     'created_by' => $request->created_by,
-    //                     'created_date' => date('Y-m-d H:i:s'),
-    //                 ]);
-    //             }
-    //         }
-
-    //         if (is_array($request->statistican) && ! empty($request->statistican)) {
-    //             foreach ($request->statistican as $user) {
-    //                 $statistican = $user['statistican'] ?? null;
-    //                 $statisticanid = $user['statisticanid'] ?? null;
-    //                 $existingAssignment = ProjectAssignDetails::where('project_id', $details->id)
-    //                     ->where('id', $statisticanid)
-    //                     ->where('type', 'statistican')
-    //                     ->first();
-    //                 $existingAssignment1 = ProjectAssignDetails::where('project_id', $details->id)
-    //                     ->where('status', 'correction')
-    //                     ->where('type', 'team_coordinator')
-    //                     // ->where('assign_user', $statistican)
-    //                     ->where('type_sme', 'statistican')
-    //                     ->first();
-
-    //                 if ($existingAssignment1) {
-    //                     $existingAssignment1->assign_user = $statistican;
-    //                     $existingAssignment1->assign_date = $user['statisticanAssignedDate'];
-    //                     $existingAssignment1->status = $user['statisticanStatus'];
-    //                     $existingAssignment1->status_date = $user['statisticanStatusDate'];
-    //                     $existingAssignment1->project_duration = $user['statisticanProjectDuration'];
-    //                     $existingAssignment1->comments = $user['statistican_comment'] ?? '';
-    //                     $existingAssignment1->save();
-    //                 }
-
-    //                 if ($existingAssignment) {
-    //                     $existingAssignment->assign_user = $statistican;
-    //                     $existingAssignment->assign_date = $user['statisticanAssignedDate'];
-    //                     $existingAssignment->status = $user['statisticanStatus'];
-    //                     $existingAssignment->status_date = $user['statisticanStatusDate'];
-    //                     $existingAssignment->project_duration = $user['statisticanProjectDuration'];
-    //                     $existingAssignment->comments = $user['statistican_comment'] ?? '';
-    //                     $existingAssignment->save();
-
-    //                     $userDetails = User::where('id', $statistican)->first();
-    //                     if ($userDetails) {
-    //                         try {
-    //                             Mail::to($userDetails->email_address)->send(new AssignmentNotificationMail([
-    //                                 'name' => $userDetails->employee_name,
-    //                                 'role' => 'statistican',
-    //                                 'project_id' => $customId,
-    //                                 // 'title' => $details->title,
-    //                                 // 'duration' => $details->projectduration,
-    //                                 // 'unit' => $details->$durationUnit ?? null, // prevent undefined property error
-    //                             ]));
-
-    //                             Log::info("Email sent to statistican ({$userDetails->email_address}).");
-    //                         } catch (\Exception $e) {
-    //                             Log::error('Failed to send email to statistican: '.$e->getMessage());
-    //                         }
-    //                     } else {
-    //                         Log::warning("User not found for statistican ID: {$user['statistican']}");
-    //                     }
-    //                 } else {
-    //                     // Insert new record
-    //                     $assigned_d = new ProjectAssignDetails;
-    //                     $assigned_d->project_id = $details->id;
-    //                     $assigned_d->assign_user = $user['statistican'];
-    //                     $assigned_d->assign_date = $user['statisticanAssignedDate'];
-    //                     $assigned_d->status = $user['statisticanStatus'];
-    //                     $assigned_d->status_date = $user['statisticanStatusDate'];
-    //                     $assigned_d->project_duration = $user['statisticanProjectDuration'];
-    //                     $assigned_d->comments = $user['statistican_comment'];
-    //                     $assigned_d->type = 'statistican';
-    //                     $assigned_d->created_by = $request->created_by;
-    //                     $assigned_d->save();
-    //                 }
-
-    //                 $userDetails = User::find($user['statistican']);
-
-    //                 // $activity = new ProjectActivity;
-    //                 // $activity->project_id = $details->id;
-    //                 // $activity->activity = 'Project assigned to ' . $userDetails->employee_name;
-    //                 // $activity->created_by = $request->created_by;
-    //                 // $activity->created_date = now();
-    //                 // $activity->save();
-
-    //                 $existingAssignment = ProjectStatus::where('project_id', $details->id)
-    //                     ->where('assign_id', $user['statistican'])
-    //                     ->first();
-
-    //                 if ($existingAssignment) {
-    //                     Log::info('check data');
-    //                 } else {
-    //                     ProjectStatus::create([
-    //                         'project_id' => $details->id,
-    //                         'assign_id' => $user['statistican'],
-    //                     ]);
-    //                 }
-
-    //                 $existingWriterLog = ProjectLogs::where('project_id', $details->id)
-    //                     ->where('employee_id', $user['statistican'])
-    //                     ->where('status_type', 'statistican')
-    //                     ->latest()
-    //                     ->first();
-
-    //                 // if (!$existingWriterLog) {
-    //                 ProjectLogs::create([
-    //                     'project_id' => $details->id,
-    //                     'employee_id' => $user['statistican'],
-    //                     'assigned_date' => $user['statisticanAssignedDate'],
-    //                     'status' => $user['statisticanStatus'],
-    //                     'status_date' => $user['statisticanStatusDate'],
-    //                     'status_type' => 'statistican',
-    //                     'assing_preview_id' => optional(ProjectLogs::where('project_id', $details->id)
-    //                         ->where('employee_id', $user['statistican'])
-    //                         ->where('status_type', 'statistican')
-    //                         ->latest()
-    //                         ->first())->id,
-    //                     'created_by' => $request->created_by,
-    //                     'created_date' => date('Y-m-d H:i:s'),
-    //                 ]);
-    //             }
-    //         }
-    //         if (is_array($request->journal) && ! empty($request->journal)) {
-    //             foreach ($request->journal as $user) {
-    //                 $journal = $user['journal'] ?? null;
-    //                 $journalid = $user['journalid'] ?? null;
-
-    //                 $existingAssignment = ProjectAssignDetails::where('project_id', $details->id)
-    //                     ->where('id', $journalid)
-    //                     ->where('type', 'publication_manager')
-    //                     ->first();
-
-    //                 if ($existingAssignment) {
-
-    //                     $existingAssignment->assign_user = $journal;
-    //                     $existingAssignment->assign_date = $user['journalAssignedDate'];
-    //                     $existingAssignment->status = $user['journalStatus'];
-    //                     $existingAssignment->status_date = $user['journalStatusDate'];
-    //                     $existingAssignment->project_duration = $user['journalProjectDuration'];
-    //                     $existingAssignment->comments = $user['journal_comment'] ?? '';
-    //                     $existingAssignment->type_of_article = $user['type_of_article'] ?? '';
-    //                     $existingAssignment->review = $user['review'] ?? '';
-    //                     $existingAssignment->save();
-    //                 } else {
-    //                     // Insert new record
-    //                     $assigned_d = new ProjectAssignDetails;
-    //                     $assigned_d->project_id = $details->id;
-    //                     $assigned_d->assign_user = $user['journal'];
-    //                     $assigned_d->assign_date = $user['journalAssignedDate'];
-    //                     $assigned_d->status = $user['journalStatus'];
-    //                     $assigned_d->status_date = $user['journalStatusDate'];
-    //                     $assigned_d->project_duration = $user['journalProjectDuration'];
-    //                     $assigned_d->comments = $user['journal_comment'] ?? '';
-    //                     $assigned_d->type = 'publication_manager';
-    //                     $assigned_d->type_of_article = $user['type_of_article'] ?? '';
-    //                     $assigned_d->review = $user['review'] ?? '';
-    //                     $assigned_d->created_by = $request->created_by;
-    //                     $assigned_d->save();
-    //                 }
-
-    //                 $existingAssignment = ProjectStatus::where('project_id', $details->id)
-    //                     ->where('assign_id', $user['journal'])
-    //                     ->first();
-
-    //                 if ($existingAssignment) {
-    //                     Log::info('check data');
-    //                 } else {
-    //                     ProjectStatus::create([
-    //                         'project_id' => $details->id,
-    //                         'assign_id' => $user['journal'],
-    //                     ]);
-    //                 }
-
-    //                 $existingWriterLog = ProjectLogs::where('project_id', $details->id)
-    //                     ->where('employee_id', $user['journal'])
-    //                     ->where('status_type', 'publication_manager')
-    //                     ->latest()
-    //                     ->first();
-
-    //                 // if (!$existingWriterLog) {
-    //                 ProjectLogs::create([
-    //                     'project_id' => $details->id,
-    //                     'employee_id' => $user['journal'],
-    //                     'assigned_date' => $user['journalAssignedDate'],
-    //                     'status' => $user['journalStatus'],
-    //                     'status_date' => $user['journalStatusDate'],
-    //                     'status_type' => 'publication_manager',
-    //                     'assing_preview_id' => optional(ProjectLogs::where('project_id', $details->id)
-    //                         ->where('employee_id', $user['journal'])
-    //                         ->where('status_type', 'publication_manager')
-    //                         ->latest()
-    //                         ->first())->id,
-    //                     'created_by' => $request->created_by,
-    //                     'created_date' => date('Y-m-d H:i:s'),
-    //                 ]);
-    //             }
-    //         }
-
-    //         //latest update
-    //         // if ($request->has('entryprocess_documents') && is_array($request->entryprocess_documents)) {
-
-    //         //     $defaultSpecificOption = null;
-    //         //     $entryprocessDocuments = [];
-
-    //         //     foreach ($request->entryprocess_documents as $document) {
-    //         //         $fileNames = [];
-
-    //         //         // Initialize a new EntryDocument always
-    //         //         $entryDocument = new EntryDocument();
-    //         //         $entryDocument->entry_process_model_id = $details->id;
-    //         //         $entryDocument->created_by = $request->created_by ?? '-';
-
-    //         //         // Handle select_document (specificOption) if available
-    //         //         if (isset($document['specificOption']) && is_array($document['specificOption']) && !empty($document['specificOption'])) {
-    //         //             $defaultSpecificOption = $document['specificOption']; // set default
-    //         //             $entryDocument->select_document = json_encode($document['specificOption'], JSON_UNESCAPED_UNICODE);
-    //         //         } elseif ($defaultSpecificOption !== null) {
-    //         //             $entryDocument->select_document = json_encode($defaultSpecificOption, JSON_UNESCAPED_UNICODE); // use default if available
-    //         //         }
-
-    //         //         $entryDocument->save();
-
-    //         //         // Handle file uploads if present
-    //         //         if (isset($document['file']) && is_array($document['file'])) {
-    //         //             foreach ($document['file'] as $file) {
-    //         //                 if (!empty($file)) {
-    //         //                     $originalName = $file->getClientOriginalName();
-    //         //                     $originalExtension = $file->getClientOriginalExtension();
-    //         //                     $cleanedName = strtolower(preg_replace('/[^a-z0-9]+/i', '-', pathinfo($originalName, PATHINFO_FILENAME)));
-    //         //                     $cleanedName = str_replace('_', '', $cleanedName);
-    //         //                     $uniqueName = $cleanedName . '.' . $originalExtension;
-
-    //         //                     $path = public_path('uploads');
-    //         //                     if (!is_dir($path)) {
-    //         //                         mkdir($path, 0775, true);
-    //         //                     }
-
-    //         //                     $file->move($path, $uniqueName);
-
-    //         //                     // Save file record
-    //         //                     $documentList = new EntryDocumentsList();
-    //         //                     $documentList->document_id = $entryDocument->id;
-    //         //                     $documentList->file = $uniqueName;
-    //         //                     $documentList->original_name = $cleanedName . '.' . $originalExtension;
-    //         //                     $documentList->save();
-
-    //         //                     $fileNames[] = $uniqueName;
-    //         //                 }
-    //         //             }
-    //         //         }
-
-    //         //         // Response formatting
-    //         //         $entryprocessDocuments[] = [
-    //         //             'specificOption' => $entryDocument->select_document ? json_decode($entryDocument->select_document) : null,
-    //         //             'file' => $fileNames
-    //         //         ];
-    //         //     }
-
-    //         //     // Return a successful response
-    //         //     return response()->json([
-    //         //         'entryprocess_documents' => $entryprocessDocuments
-    //         //     ], 200);
-    //         // } else {
-    //         //     return response()->json(['error' => 'Invalid input data'], 400);
-    //         // }
-
-    //         //new
-    //         if ($request->has('entryprocess_documents') && is_array($request->entryprocess_documents)) {
-
-    //             $defaultSpecificOption = null;
-    //             $entryprocessDocuments = [];
-
-    //             foreach ($request->entryprocess_documents as $document) {
-    //                 $fileNames = [];
-
-    //                 // Try to find an existing entry document
-    //                 $entryDocument = EntryDocument::where('entry_process_model_id', $details->id)
-    //                     ->when(isset($document['id']), function ($q) use ($document) {
-    //                         $q->where('id', $document['id']); // if id is passed
-    //                     })
-    //                     ->first();
-
-    //                 // If not found, create new
-    //                 if (! $entryDocument) {
-    //                     $entryDocument = new EntryDocument;
-    //                     $entryDocument->entry_process_model_id = $details->id;
-    //                     $entryDocument->created_by = $request->created_by ?? '-';
-    //                 }
-
-    //                 // Handle select_document (specificOption)
-    //                 if (isset($document['specificOption']) && is_array($document['specificOption']) && ! empty($document['specificOption'])) {
-    //                     $defaultSpecificOption = $document['specificOption'];
-    //                     $entryDocument->select_document = json_encode($document['specificOption'], JSON_UNESCAPED_UNICODE);
-    //                 } elseif ($defaultSpecificOption !== null) {
-    //                     $entryDocument->select_document = json_encode($defaultSpecificOption, JSON_UNESCAPED_UNICODE);
-    //                 }
-
-    //                 $entryDocument->save();
-
-    //                 // Handle file uploads (append new files)
-    //                 if (isset($document['file']) && is_array($document['file'])) {
-    //                     foreach ($document['file'] as $file) {
-    //                         if (! empty($file)) {
-    //                             $originalName = $file->getClientOriginalName();
-    //                             $originalExtension = $file->getClientOriginalExtension();
-    //                             $cleanedName = preg_replace('/[^a-z0-9]+/i', '-', pathinfo($originalName, PATHINFO_FILENAME));
-    //                             $cleanedName = str_replace('_', '', $cleanedName);
-    //                             $uniqueName = $cleanedName.'.'.$originalExtension;
-
-    //                             $path = public_path('uploads');
-    //                             if (! is_dir($path)) {
-    //                                 mkdir($path, 0775, true);
-    //                             }
-
-    //                             $file->move($path, $uniqueName);
-
-    //                             // Save new file record
-    //                             $documentList = new EntryDocumentsList;
-    //                             $documentList->document_id = $entryDocument->id;
-    //                             $documentList->file = $uniqueName;
-    //                             $documentList->original_name = $cleanedName.'.'.$originalExtension;
-    //                             $documentList->save();
-
-    //                             $fileNames[] = $uniqueName;
-    //                         }
-    //                     }
-    //                 }
-
-    //                 // Response formatting
-    //                 $entryprocessDocuments[] = [
-    //                     'specificOption' => $entryDocument->select_document ? json_decode($entryDocument->select_document) : null,
-    //                     'file' => $fileNames,
-    //                 ];
-    //             }
-
-    //             return response()->json([
-    //                 'entryprocess_documents' => $entryprocessDocuments,
-    //             ], 200);
-    //         } else {
-    //             return response()->json(['error' => 'Invalid input data'], 400);
-    //         }
-    //     });
-    // }
 
     private function ordinal($number)
     {
         $ends = ['th', 'st', 'nd', 'rd', 'th', 'th', 'th', 'th', 'th', 'th'];
 
         if (($number % 100) >= 11 && ($number % 100) <= 13) {
-            return $number.'th';
+            return $number . 'th';
         }
 
-        return $number.$ends[$number % 10];
+        return $number . $ends[$number % 10];
     }
 
     public function update(Request $request, $id)
@@ -3219,8 +2161,8 @@ class EntryProcessController extends Controller
 
                     if ($userDetails) {
                         if (! empty($userDetails->email_address)) {
-                            $durationKey = $key.'_project_duration';
-                            $durationUnit = $key.'_duration_unit';
+                            $durationKey = $key . '_project_duration';
+                            $durationUnit = $key . '_duration_unit';
                             try {
                                 Mail::to($userDetails->email_address)->send(new AssignmentNotificationMail([
                                     'name' => $userDetails->employee_name,
@@ -3232,7 +2174,7 @@ class EntryProcessController extends Controller
                                 ]));
                                 Log::info("Email sent to {$role} ({$userDetails->email_address}).");
                             } catch (\Exception $e) {
-                                Log::error("Failed to send email to {$role}: ".$e->getMessage());
+                                Log::error("Failed to send email to {$role}: " . $e->getMessage());
                             }
                         } else {
                             Log::error("{$role} email is empty or invalid.");
@@ -3264,7 +2206,7 @@ class EntryProcessController extends Controller
 
                 $increment = $lastEntry ? (int) substr($lastEntry->project_id, strlen($selectedOption) + 1) + 1 : 1;
                 $formattedIncrement = str_pad($increment, 3, '0', STR_PAD_LEFT);
-                $customId = $selectedOption.'-'.$formattedIncrement;
+                $customId = $selectedOption . '-' . $formattedIncrement;
             } else {
                 $customId = $details->project_id;
             }
@@ -3295,42 +2237,42 @@ class EntryProcessController extends Controller
             $processStatusChanged = ($details->process_status !== $request->process_status);
 
 
-            
+
             $created = User::with('createdByUser')->find($request->created_by);
             $creator = $created?->createdByUser?->name ?? 'Admin';
-                // if ($details->process_status !== $request->process_status) {
-                    // ProjectActivity::firstOrCreate(
-                    //     [
-                    //         'project_id' => $details->id,
-                    //         'activity' => 'Project process status marked as '.$request->process_status,
-                    //         'role' => $creator,
-                    //         'created_by' => $request->created_by,
-                    //     ],
-                    //     [
-                    //         'created_date' => now(),
-                    //     ]
-                    // );
-                // }
+            // if ($details->process_status !== $request->process_status) {
+            // ProjectActivity::firstOrCreate(
+            //     [
+            //         'project_id' => $details->id,
+            //         'activity' => 'Project process status marked as '.$request->process_status,
+            //         'role' => $creator,
+            //         'created_by' => $request->created_by,
+            //     ],
+            //     [
+            //         'created_date' => now(),
+            //     ]
+            // );
+            // }
 
-              if ($processStatusChanged) {
-            // Check if the same activity was created recently (within last 60 seconds)
-            $existingActivity = ProjectActivity::where('project_id', $details->id)
-                ->where('activity', 'Project process status marked as '.$request->process_status)
-                ->where('role', $creator)
-                ->where('created_by', $request->created_by)
-                ->where('created_date', '>=', now()->subSeconds(60))
-                ->exists();
+            if ($processStatusChanged) {
+                // Check if the same activity was created recently (within last 60 seconds)
+                $existingActivity = ProjectActivity::where('project_id', $details->id)
+                    ->where('activity', 'Project process status marked as ' . $request->process_status)
+                    ->where('role', $creator)
+                    ->where('created_by', $request->created_by)
+                    ->where('created_date', '>=', now()->subSeconds(60))
+                    ->exists();
 
-            if (!$existingActivity) {
-                ProjectActivity::create([
-                    'project_id' => $details->id,
-                    'activity' => 'Project process status marked as '.$request->process_status,
-                    'role' => $creator,
-                    'created_by' => $request->created_by,
-                    'created_date' => now(),
-                ]);
+                if (!$existingActivity) {
+                    ProjectActivity::create([
+                        'project_id' => $details->id,
+                        'activity' => 'Project process status marked as ' . $request->process_status,
+                        'role' => $creator,
+                        'created_by' => $request->created_by,
+                        'created_date' => now(),
+                    ]);
+                }
             }
-        }
             if ($request->created_by != '86') {
 
                 ProjectActivity::firstOrCreate(
@@ -3344,7 +2286,6 @@ class EntryProcessController extends Controller
                         'created_date' => now(),
                     ]
                 );
-
             }
 
             if ($request->process_status === 'withdrawal') {
@@ -3387,7 +2328,7 @@ class EntryProcessController extends Controller
 
                         Log::info('Email sent to project manager and team manager');
                     } catch (\Exception $e) {
-                        Log::error('Mail failed: '.$e->getMessage());
+                        Log::error('Mail failed: ' . $e->getMessage());
                     }
                 }
             }
@@ -3471,7 +2412,6 @@ class EntryProcessController extends Controller
                         //     );
                         // }
                     }
-
                 } else {
                     Log::info('Creating new payment status', ['project_id' => $details->id]);
 
@@ -3579,7 +2519,6 @@ class EntryProcessController extends Controller
 
                             $freelancerDetails->save();
                         }
-
                     }
                     // CREATE new payment detail
                     else {
@@ -3707,7 +2646,7 @@ class EntryProcessController extends Controller
                         $existingAssignment->comments = $user['writer_comment'] ?? $existingAssignment->comments;
                         $existingAssignment->save();
 
-                      
+
 
                         $userDetails = User::where('id', $writer)->first();
                         if ($userDetails) {
@@ -3723,7 +2662,7 @@ class EntryProcessController extends Controller
 
                                 Log::info("Email sent to writer ({$userDetails->email_address}).");
                             } catch (\Exception $e) {
-                                Log::error('Failed to send email to writer: '.$e->getMessage());
+                                Log::error('Failed to send email to writer: ' . $e->getMessage());
                             }
                         } else {
                             Log::warning("User not found for writer ID: {$user['writer']}");
@@ -3766,9 +2705,9 @@ class EntryProcessController extends Controller
                         $activity = new ProjectActivity;
                         $activity->project_id = $details->id;
                         $activity->activity = 'Project assigned to '
-                            .$userDetails->employee_name
-                            .' as the '.$position.' writer by '
-                            .$creator;
+                            . $userDetails->employee_name
+                            . ' as the ' . $position . ' writer by '
+                            . $creator;
                         $activity->role = $creator;
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -3880,7 +2819,7 @@ class EntryProcessController extends Controller
 
                                 Log::info("Email sent to reviewer ({$userDetails->email_address}).");
                             } catch (\Exception $e) {
-                                Log::error('Failed to send email to reviewer: '.$e->getMessage());
+                                Log::error('Failed to send email to reviewer: ' . $e->getMessage());
                             }
                         } else {
                             Log::warning("User not found for reviewer ID: {$user['reviewer']}");
@@ -3920,9 +2859,9 @@ class EntryProcessController extends Controller
                         $activity = new ProjectActivity;
                         $activity->project_id = $details->id;
                         $activity->activity = 'Project assigned to '
-                            .$userDetails->employee_name
-                            .' as the '.$position.' reviewer by '
-                            .$creator;
+                            . $userDetails->employee_name
+                            . ' as the ' . $position . ' reviewer by '
+                            . $creator;
                         $activity->role = $creator;
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -4038,7 +2977,7 @@ class EntryProcessController extends Controller
 
                                 Log::info("Email sent to statistican ({$userDetails->email_address}).");
                             } catch (\Exception $e) {
-                                Log::error('Failed to send email to statistican: '.$e->getMessage());
+                                Log::error('Failed to send email to statistican: ' . $e->getMessage());
                             }
                         } else {
                             Log::warning("User not found for statistican ID: {$user['statistican']}");
@@ -4301,7 +3240,7 @@ class EntryProcessController extends Controller
                                 $originalExtension = $file->getClientOriginalExtension();
                                 $cleanedName = preg_replace('/[^a-z0-9]+/i', '-', pathinfo($originalName, PATHINFO_FILENAME));
                                 $cleanedName = str_replace('_', '', $cleanedName);
-                                $uniqueName = $customId . '-' . $cleanedName.'.'.$originalExtension;
+                                $uniqueName = $customId . '-' . $cleanedName . '.' . $originalExtension;
 
                                 $path = public_path('uploads');
                                 if (! is_dir($path)) {
@@ -4314,7 +3253,7 @@ class EntryProcessController extends Controller
                                 $documentList = new EntryDocumentsList;
                                 $documentList->document_id = $entryDocument->id;
                                 $documentList->file = $uniqueName;
-                                $documentList->original_name = $cleanedName.'.'.$originalExtension;
+                                $documentList->original_name = $cleanedName . '.' . $originalExtension;
                                 $documentList->save();
 
                                 $fileNames[] = $uniqueName;
@@ -4404,7 +3343,7 @@ class EntryProcessController extends Controller
 
             $activity = new ProjectActivity;
             $activity->project_id = $project_id;
-            $activity->activity = 'Project assigned to '.$userDetails->employee_name.' '.$type.' by'.$createdCreator;
+            $activity->activity = 'Project assigned to ' . $userDetails->employee_name . ' ' . $type . ' by' . $createdCreator;
             $activity->role = $createdCreator;
             $activity->created_by = $createdby;
             $activity->created_date = now();
@@ -4421,7 +3360,7 @@ class EntryProcessController extends Controller
 
                 Log::info("Email sent to reviewer ({$userDetails->email_address}).");
             } catch (\Exception $e) {
-                Log::error('Failed to send email to reviewer: '.$e->getMessage());
+                Log::error('Failed to send email to reviewer: ' . $e->getMessage());
             }
 
             return response()->json(['message' => 'User assigned successfully'], 200);
@@ -4601,7 +3540,7 @@ class EntryProcessController extends Controller
             return response()->json(['message' => 'Entry process not found'], 404);
         }
         // Helper to clean date fields
-        $nullifyIfEmpty = fn ($value) => empty($value) ? null : $value;
+        $nullifyIfEmpty = fn($value) => empty($value) ? null : $value;
         // Update entry process fields
         $entry->entry_date = $request->entry_date ?? null;
         $entry->title = $request->title ?? null;
@@ -4764,3463 +3703,525 @@ class EntryProcessController extends Controller
         ]);
     }
 
-    // public function dashboardProjectList(Request $request)
-    // {
-    //     $position = $request->get('position');
-
-    //     $monthwiseData = $this->monthWiseTable($position);
-
-    //     $currentYear = date('Y');
-
-    //     $entries = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')->where('is_deleted', 0)->whereYear('entry_date', $currentYear)->get();
-
-    //     // $projectStatusList = EntryProcessModel::with(['projectStatus' => function ($query) {
-    //     //     $query->where(function ($q) {
-    //     //         $q->where('status', 'rejected');
-    //     //     });
-    //     // }])
-    //     //     ->where('is_deleted', 0)
-    //     //     ->where('process_status', '!=', 'completed')
-    //     //     ->whereYear('entry_date', $currentYear)
-    //     //     ->get();
-    //     $projectStatusList = EntryProcessModel::with('projectStatus') // Just eager-load the relation
-    //         ->whereHas('projectStatus', function ($query) {
-    //             $query->where('status', 'rejected')
-    //                 ->orderBy('created_at', 'desc');
-    //         })
-    //         ->where('is_deleted', 0)
-    //         ->where('process_status', '!=', 'completed')
-    //         ->whereYear('entry_date', $currentYear)
-    //         ->orderBy('created_at', 'desc')
-    //         ->get();
-
-    //     $projectStatusCount = $projectStatusList->count();
-
-    //     // Initialize counters
-    //     $typeOfWorkCounts = [
-    //         'manuscript' => 0,
-    //         'thesis' => 0,
-    //         'statistics' => 0,
-    //         'presentation' => 0,
-    //         'others' => 0,
-    //     ];
-    //     $processStatusCounts = [
-    //         'not_assigned' => 0,
-    //         'pending_author' => 0,
-    //         'withdrawal' => 0,
-    //         'in_progress' => 0,
-    //         'completed' => 0,
-    //     ];
-    //     $journalStatusCounts = [
-    //         'submit_to_journal' => 0,
-    //         'submitted' => 0,
-    //         'peer_review' => 0,
-    //         'reviewer_comments' => 0,
-    //         'resubmission' => 0,
-    //         'rejected' => 0,
-    //     ];
-    //     $completedCounts = $typeOfWorkCounts;
-    //     $urgentImportantCount = 0;
-    //     $notAssignedCount = 0;
-    //     $projectDelayCount = 0;
-    //     $freelancerPaymentCount = 0;
-    //     $writerProjectCount = 0;
-    //     $reviewerProjectCount = 0;
-
-    //     $writerStatusCounts = [
-    //         'completed' => 0,
-    //         'on_going' => 0,
-    //         'correction' => 0,
-    //         'plag_correction' => 0,
-    //     ];
-
-    //     $reviewerStatusCounts = [
-    //         'completed' => 0,
-    //         'on_going' => 0,
-    //         'correction' => 0,
-    //         'plag_correction' => 0,
-    //     ];
-
-    //     $paymentStatusCounts = [
-    //         'advance_pending' => 0,
-    //         'partial_payment_pending' => 0,
-    //         'final_payment_pending' => 0,
-    //         'completed' => 0,
-    //     ];
-
-    //     $paymentEntries = PaymentStatusModel::select('payment_status', 'id')
-    //         ->with(['projectData'])
-    //         ->whereIn('payment_status', [
-    //             'advance_pending',
-    //             'partial_payment_pending',
-    //             'final_payment_pending',
-    //             'completed',
-    //         ])
-    //         ->whereHas('projectData', function ($query) {
-    //             $query->where('is_deleted', 0);
-    //         })
-
-    //         ->get();
-
-    //     $peopleIds_pm = People::where('position', '28')
-    //         ->pluck('id')
-    //         ->filter()
-    //         ->values()
-    //         ->toArray();
-
-    //     $journalEntries = ProjectAssignDetails::select('status', 'id', 'project_id')
-    //         ->where('type', 'publication_manager')
-    //         ->whereIn('created_by', $peopleIds_pm)
-    //         ->whereIn('status', array_keys($journalStatusCounts))
-    //         ->get();
-
-    //     $journalStatusIds = [
-    //         'submit_to_journal' => [],
-    //         'reviewer_comments' => [],
-    //         'submitted' => [],
-    //         'peer_review' => [],
-    //         'resubmission' => [],
-    //         'rejected' => [],
-    //     ];
-
-    //     foreach ($journalEntries as $entry) {
-    //         if (isset($journalStatusCounts[$entry->status])) {
-    //             $journalStatusCounts[$entry->status]++;
-
-    //             $journalStatusIds[$entry->status][] = $entry->project_id;
-    //         }
-    //     }
-
-    //     $submitted_peer_review_count = $journalStatusCounts['submitted'] + $journalStatusCounts['peer_review'];
-    //     $submitted_peer_review_ids = array_merge($journalStatusIds['submitted'], $journalStatusIds['peer_review']);
-
-    //     $resubmission_rejected_count = $journalStatusCounts['resubmission'] + $journalStatusCounts['rejected'];
-    //     $resubmission_rejected_ids = array_merge($journalStatusIds['resubmission'], $journalStatusIds['rejected']);
-
-    //     $result = [
-    //         'submit_to_journal' => [
-    //             'count' => $journalStatusCounts['submit_to_journal'],
-    //             'ids' => $journalStatusIds['submit_to_journal'],
-    //         ],
-    //         'reviewer_comments' => [
-    //             'count' => $journalStatusCounts['reviewer_comments'],
-    //             'ids' => $journalStatusIds['reviewer_comments'],
-    //         ],
-    //         'submitted_peer_review' => [
-    //             'count' => $submitted_peer_review_count,
-    //             'ids' => $submitted_peer_review_ids,
-    //         ],
-    //         'resubmission_rejected' => [
-    //             'count' => $resubmission_rejected_count,
-    //             'ids' => $resubmission_rejected_ids,
-    //         ],
-    //     ];
-
-    //     $typeOfWorkCounts = $typeOfWorkCounts ?? [];
-    //     $processStatusCounts = $processStatusCounts ?? [];
-    //     $journalStatusCounts = $journalStatusCounts ?? [];
-    //     $completedCounts = $completedCounts ?? [];
-    //     $urgentImportantCount = 0;
-    //     $importantNotUrgentCount = 0;
-    //     $urgentNotImportantCount = 0;
-    //     $notUrgentNotImportantCount = 0;
-    //     $notAssignedCount = 0;
-    //     $projectDelayCount = 0;
-    //     $writerCount = 0;
-    //     $reviewerCount = 0;
-    //     $writerStatusCounts = $writerStatusCounts ?? [];
-    //     $reviewerStatusCounts = $reviewerStatusCounts ?? [];
-    //     $freelancerPaymentCount = 0;
-    //     $freelancers = [];
-    //     $paymentStatusCounts = $paymentStatusCounts ?? [];
-
-    //     $idsToCheck = [];
-    //     $currentDate = now()->format('Y-m-d');
-    //     $assignprojectIds = [];
-
-    //     $projectIds = $entries->pluck('id')->toArray();
-    //     // Count writer and reviewer
-    //     $writerProjectCount = ProjectAssignDetails::whereIn('project_id', $projectIds)->where('type', 'writer')->count();
-
-    //     $reviewerProjectCount = ProjectAssignDetails::whereIn('project_id', $projectIds)->where('type', 'reviewer')->count();
-
-    //     $submitted_peer = ProjectAssignDetails::whereIn('status', ['submit_to_journal', 'peer_review'])->count();
-    //     $resubmission_rejected = ProjectAssignDetails::whereIn('status', ['resubmission', 'rejected'])->count();
-
-    //     $journalEntriesCount = ProjectAssignDetails::whereIn('status', [
-    //         'submit_to_journal',
-    //         'peer_review',
-    //         'reviewer_comments',
-    //     ])->count();
-
-    //     foreach ($entries as $entry) {
-    //         // Count type_of_work
-    //         $typeOfWorkCounts[$entry->type_of_work] = ($typeOfWorkCounts[$entry->type_of_work] ?? 0) + 1;
-
-    //         // Count process_status
-    //         $processStatusCounts[$entry->process_status] = ($processStatusCounts[$entry->process_status] ?? 0) + 1;
-
-    //         // if (isset($entry->journal_status)) {
-    //         //     if ($entry->journal_status === 'submitted' || $entry->journal_status === 'peer_review') {
-    //         //         $journalStatusCounts['submit_peer_review'] = ($journalStatusCounts['submit_peer_review'] ?? 0) + 1;
-    //         //     } elseif ($entry->journal_status === 'resubmission' || $entry->journal_status === 'rejected') {
-    //         //         $journalStatusCounts['resubmission_rejected'] = ($journalStatusCounts['resubmission_rejected'] ?? 0) + 1;
-    //         //     } else {
-    //         //         $journalStatusCounts[$entry->journal_status] = ($journalStatusCounts[$entry->journal_status] ?? 0) + 1;
-    //         //     }
-    //         // }
-
-    //         // Count journal_status use $journalStatusCounts
-    //         $journalStatusCounts[$entry->process_status] = ($journalStatusCounts[$entry->process_status] ?? 0) + 1;
-
-    //         if ($entry->process_status === 'completed') {
-    //             $completedCounts[$entry->type_of_work] = ($completedCounts[$entry->type_of_work] ?? 0) + 1;
-    //         }
-
-    //         if ($entry->hierarchy_level === 'urgent_important' && $entry->process_status !== 'completed') {
-    //             $urgentImportantCount++;
-    //         }
-
-    //         if ($entry->hierarchy_level === 'important_not_urgent') {
-    //             $importantNotUrgentCount++;
-    //         }
-
-    //         if ($entry->hierarchy_level === 'urgent_not_important') {
-    //             $urgentNotImportantCount++;
-    //         }
-
-    //         if ($entry->hierarchy_level === 'not_urgent_not_important') {
-    //             $notUrgentNotImportantCount++;
-    //         }
-
-    //         if ($entry->process_status === 'not_assigned' && $entry->process_status !== 'completed') {
-    //             $notAssignedCount++;
-    //         }
-    //         $delayedProjects = [];
-
-    //         $projectstatus = ProjectViewStatus::where('project_id', $entry->id)->Where('project_status', '!=', 'completed')->orderBy('id', 'desc')->latest()->first();
-
-    //         $projectstatus_completeddate = $projectstatus ? $projectstatus->created_date : null;
-
-    //         $projectDurationDate = $entry->projectduration;
-
-    //         if ($projectstatus_completeddate) {
-
-    //             if ($projectDurationDate < $currentDate) {
-    //                 $projectDelayCount++;
-
-    //                 $delayedProjects[] = [
-    //                     'project_id' => $entry->project_id,
-    //                     'id' => $entry->id,
-    //                     'entry_date' => $entry->entry_date,
-    //                     'hierarchy_level' => $entry->hierarchy_level,
-    //                     'type_of_work' => $entry->type_of_work,
-    //                     'title' => $entry->title,
-    //                     'process_status' => $entry->process_status,
-    //                     'writer' => $entry->writer,
-    //                     'reviewer' => $entry->reviewer,
-    //                     'statistican' => $entry->statistican,
-    //                     'journal' => $entry->journal,
-    //                     'writer_status' => $entry->writer_status,
-    //                     'reviewer_status' => $entry->reviewer_status,
-    //                     'statistican_status' => $entry->statistican_status,
-    //                     'journal_status' => $entry->journal_status,
-    //                     'client_name' => $entry->client_name,
-
-    //                     'project_duration' => $entry->projectduration,
-    //                 ];
-    //             } else {
-    //                 if ($projectDurationDate < $currentDate) {
-    //                     $delayedProjects[] = [
-    //                         'project_id' => $entry->project_id,
-    //                         'id' => $entry->id,
-    //                         'entry_date' => $entry->entry_date,
-    //                         'hierarchy_level' => $entry->hierarchy_level,
-    //                         'type_of_work' => $entry->type_of_work,
-    //                         'title' => $entry->title,
-    //                         'process_status' => $entry->process_status,
-    //                         'writer' => $entry->writer,
-    //                         'reviewer' => $entry->reviewer,
-    //                         'statistican' => $entry->statistican,
-    //                         'journal' => $entry->journal,
-    //                         'writer_status' => $entry->writer_status,
-    //                         'reviewer_status' => $entry->reviewer_status,
-    //                         'statistican_status' => $entry->statistican_status,
-    //                         'journal_status' => $entry->journal_status,
-    //                         'client_name' => $entry->client_name,
-
-    //                         'project_duration' => $entry->projectduration,
-    //                     ];
-    //                 }
-    //             }
-    //         }
-    //         if ($entry->type_of_work === 'manuscript') {
-    //             $assignProject = ProjectAssignDetails::select('status', 'type')->where('project_id', $entry->id)->get();
-
-    //             foreach ($assignProject as $project) {
-    //                 if ($project->type === 'writer') {
-    //                     $writerStatusCounts[$project->status] = ($writerStatusCounts[$project->status] ?? 0) + 1;
-    //                 }
-
-    //                 if ($project->type === 'reviewer') {
-    //                     $reviewerStatusCounts[$project->status] = ($reviewerStatusCounts[$project->status] ?? 0) + 1;
-    //                 }
-    //             }
-    //         }
-
-    //         //freeelancer count
-    //         $assignproject = ProjectAssignDetails::where('project_id', $entry->id)->pluck('assign_user')->toArray();
-
-    //         if (! empty($assignproject)) {
-    //             $assignprojectIds[$entry->id] = array_unique($assignproject);
-    //         }
-    //     }
-
-    //     $allAssignUserIds = array_unique(array_merge(...array_values($assignprojectIds)));
-
-    //     if (! empty($allAssignUserIds)) {
-
-    //         $userhrms = DB::connection('mysql_medics_hrms')
-    //             ->table('employee_details')
-    //             ->where('employee_type', 'freelancers')
-    //             // ->select('id', 'employee_name', 'employee_type', 'position', 'department', 'date_of_joining', 'phone_number', 'email_address', 'profile_image')
-    //             ->whereIn('id', $allAssignUserIds)
-    //             ->where('status', '1')
-    //             ->get();
-
-    //         $freelancersById = $userhrms->keyBy('id');
-
-    //         // Assign freelancers to their respective projects
-    //         foreach ($entries as $entry) {
-    //             if (! isset($assignprojectIds[$entry->id])) {
-    //                 continue;
-    //             }
-
-    //             $addedProjectIds = []; // To track unique project IDs
-
-    //             foreach ($assignprojectIds[$entry->id] as $freelancerId) {
-    //                 if (isset($freelancersById[$freelancerId])) {
-    //                     $user = $freelancersById[$freelancerId];
-    //                     // Check if project_id already added
-    //                     if (! in_array($entry->project_id, $addedProjectIds)) {
-    //                         $freelancerPaymentCount++;
-    //                         $freelancers[] = [
-    //                             // 'id' => $user->id,
-    //                             // 'name' => $user->employee_name,
-    //                             // 'employee_type' => $user->employee_type,
-    //                             // 'email' => $user->email_address,
-    //                             'id' => $entry->id,
-    //                             'project_id' => $entry->project_id,
-    //                             // 'entry_date' => $entry->entry_date,
-    //                             'hierarchy_level' => $entry->hierarchy_level,
-    //                             'type_of_work' => $entry->type_of_work,
-    //                         ];
-
-    //                         $addedProjectIds[] = $entry->project_id;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     foreach ($paymentEntries as $pentry) {
-    //         if (isset($pentry->payment_status)) {
-    //             if (! isset($paymentStatusCounts[$pentry->payment_status])) {
-    //                 $paymentStatusCounts[$pentry->payment_status] = 0;
-    //             }
-
-    //             $paymentStatusCounts[$pentry->payment_status]++;
-    //         }
-    //     }
-
-    //     // foreach ($journalEntreies as $jentry) {
-    //     //     if (isset($jentry->status)) {
-    //     //         if (!isset($journalStatusCounts[$jentry->status])) {
-    //     //             $journalStatusCounts[$jentry->status] = 0;
-    //     //         }
-
-    //     //         $journalStatusCounts[$jentry->status]++;
-    //     //     }
-    //     // }
-
-    //     $filteredCount = $entries->count();
-    //     $totalCount = EntryProcessModel::select('id')->where('is_deleted', 0)->whereYear('entry_date', $currentYear)->count();
-
-    //     //todo list
-    //     function getEntryProcessData($statuses, $currentYear, $pid = null)
-    //     {
-    //         $query = EntryProcessModel::select('id', 'hierarchy_level', 'project_id', 'process_status', 'created_by')
-    //             ->with([
-    //                 'userData',
-    //                 'writerData',
-    //                 'reviewerData',
-    //                 'statisticanData',
-    //                 'journalData',
-    //             ])
-    //             ->whereIn('process_status', $statuses)
-    //             ->whereYear('entry_date', $currentYear)
-    //             ->where('is_deleted', 0)
-    //             ->where('process_status', '!=', 'completed');
-
-    //         // Apply the created_by filter if $pid is provided
-    //         if ($pid !== null) {
-    //             $query = $query->where('created_by', $pid);
-    //         }
-
-    //         return $query->orderBy('id', 'desc')->get()->map(function ($item) {
-    //             $hasAnyRole =
-    //                 ($item->writerData && $item->writerData->isNotEmpty()) ||
-    //                 ($item->reviewerData && $item->reviewerData->isNotEmpty()) ||
-    //                 ($item->statisticanData && $item->statisticanData->isNotEmpty()) ||
-    //                 ($item->journalData && $item->journalData->isNotEmpty());
-
-    //             return [
-    //                 'id' => $item->id,
-    //                 'project_id' => $item->project_id,
-    //                 'hierarchy_level' => $item->hierarchy_level,
-    //                 'process_status' => $item->process_status,
-    //                 'created_by' => $item->created_by,
-    //                 'has_role' => $hasAnyRole ? true : false,
-    //             ];
-    //         });
-    //     }
-
-    //     function getEntryProcessCount($statuses, $currentYear, $pid = null)
-    //     {
-    //         $query = EntryProcessModel::select('id', 'hierarchy_level', 'project_id', 'process_status')
-    //             ->with(['userData'])
-
-    //             ->whereIn('process_status', $statuses)
-    //             ->whereYear('entry_date', $currentYear)
-    //             ->where('process_status', '!=', 'completed')
-    //             ->where('is_deleted', 0);
-
-    //         if ($pid !== null) {
-    //             $query->where('created_by', $pid);
-    //         }
-
-    //         // Return the count of matching rows
-    //         return $query->count();
-    //     }
-
-    //     $peopleIds_sme = People::where('position', '14')
-    //         ->pluck('id')
-    //         ->filter()
-    //         ->values()
-    //         ->toArray();
-
-    //     if ($position === 'project_manager') {
-    //         $statusesInProgress = ['not_assigned'];
-    //         $pid = 9; // Set the pid for Project Manager
-    //         $inToDoList = getEntryProcessData($statusesInProgress, $currentYear, $pid); // pass pid for Project Manager
-    //         $inToDoListCount = getEntryProcessCount($statusesInProgress, $currentYear, $pid);
-    //     } elseif ($position === 'team_coordinator') {
-    //         $statusesInProgress = ['not_assigned', 'in_progress'];
-    //         // $pid = 14;
-    //         $pid = $peopleIds_sme;
-    //         $inToDoList = getEntryProcessData($statusesInProgress, $currentYear, $pid); // pass pid for Team Member
-    //         $inToDoListCount = getEntryProcessCount($statusesInProgress, $currentYear, $pid);
-    //     } elseif ($position === 'accountant') {
-    //         $statusesInProgress = ['completed'];
-    //         $pid = 9; // Set the pid for Project Manager
-    //         $inToDoList = getEntryProcessData($statusesInProgress, $currentYear, $pid); // pass pid for Project Manager
-    //         $inToDoListCount = getEntryProcessCount($statusesInProgress, $currentYear, $pid);
-    //     } else {
-    //         $statusesInProgress = ['not_assigned', 'in_progress'];
-    //         // $pid = 14;
-    //         $pid = $peopleIds_sme;
-    //         $inToDoList = getEntryProcessData($statusesInProgress, $currentYear, $pid); // pass pid for Team Member
-    //         $inToDoListCount = getEntryProcessCount($statusesInProgress, $currentYear, $pid);
-    //     }
-
-    //     // $tc_to_do = ProjectAssignDetails::with([
-    //     //     'projectData.writerData',
-    //     //     'projectData.reviewerData'
-    //     // ])
-    //     //     ->where('status', 'correction')
-    //     //     ->where('type', 'team_coordinator')
-    //     //     ->whereHas('projectData', function ($q) {
-    //     //         $q->where("process_status", "!=", "completed");
-    //     //         // Exclude if any writerData has active statuses
-    //     //         $q->whereDoesntHave('writerData', function ($subQ) {
-    //     //             $subQ->whereIn('status', [
-    //     //                 'to_do',
-    //     //                 'on_going',
-    //     //                 'need_support',
-    //     //                 'correction',
-    //     //                 'plag_correction'
-    //     //             ]);
-    //     //         });
-    //     //         // Exclude if any reviewerData has active statuses
-    //     //         $q->whereDoesntHave('reviewerData', function ($subQ) {
-    //     //             $subQ->whereIn('status', [
-    //     //                 'to_do',
-    //     //                 'on_going',
-    //     //                 'need_support',
-    //     //                 'correction',
-    //     //                 'plag_correction'
-    //     //             ]);
-    //     //         });
-    //     //         // Exclude if any smeData has 'need_support'
-    //     //         $q->whereDoesntHave('smeData', function ($subQ) {
-    //     //             $subQ->where('status', 'need_support');
-    //     //         });
-    //     //     })
-    //     //     ->get()
-    //     //     ->unique('project_id');
-
-    //     // $tc_to_do = ProjectAssignDetails::with([
-    //     //     'projectData.writerData',
-    //     //     'projectData.reviewerData'
-    //     // ])
-    //     //     ->where('status', 'correction')
-    //     //     ->where('type', 'team_coordinator')
-    //     //     ->whereHas('projectData', function ($q) {
-    //     //         // Exclude completed projects
-    //     //         $q->where('process_status', '!=', 'completed');
-
-    //     //         // Exclude if writer is still working (i.e., not completed)
-    //     //         $q->whereDoesntHave('writerData', function ($subQ) {
-    //     //             $subQ->whereIn('status', [
-    //     //                 'to_do',
-    //     //                 'on_going',
-    //     //                 'correction',
-    //     //                 'plag_correction'
-    //     //             ]);
-    //     //         });
-
-    //     //         // Exclude if reviewer is still working
-    //     //         $q->whereDoesntHave('reviewerData', function ($subQ) {
-    //     //             $subQ->whereIn('status', [
-    //     //                 'to_do',
-    //     //                 'on_going',
-    //     //                 'correction',
-    //     //                 'plag_correction'
-    //     //             ]);
-    //     //         });
-
-    //     //         // Allow if at least one of the following is completed or deleted:
-    //     //         $q->where(function ($query) {
-    //     //             $query->whereHas('writerData', function ($q1) {
-    //     //                 $q1->where('status', 'completed');
-    //     //             })
-    //     //                 ->orWhereHas('reviewerData', function ($q2) {
-    //     //                     $q2->where('status', 'completed');
-    //     //                 })
-    //     //                 ->orWhereHas('statisticanData', function ($q3) {
-    //     //                     $q3->where('status', 'completed');
-    //     //                 })
-    //     //                 ->orWhereHas('tcData', function ($q4) {
-    //     //                     $q4->where('is_deleted', '1');
-    //     //                 });
-    //     //         });
-
-    //     //         // Exclude if SME needs support
-    //     //         $q->whereDoesntHave('smeData', function ($subQ) {
-    //     //             $subQ->where('status', 'need_support');
-    //     //         });
-    //     //     })
-    //     //     ->get()
-    //     //     ->unique('project_id');
-    //     $tc_to_do = ProjectAssignDetails::with([
-    //         'projectData.writerData',
-    //         'projectData.reviewerData',
-    //         'projectData.statisticanData',
-    //         'projectData.tcData',
-    //     ])
-    //         ->where('status', 'correction')
-    //         ->where('type', 'team_coordinator')
-    //         ->orderBy('updated_at', 'desc')
-    //         ->whereHas('projectData', function ($q) {
-    //             $q->where('process_status', '!=', 'completed')
-    //                 ->where('is_deleted', 0);
-    //             // $q->whereDoesntHave('writerData', function ($subQ) {
-    //             //     $subQ->whereIn('status', [
-    //             //         'to_do',
-    //             //         'on_going',
-    //             //         'correction',
-    //             //         'plag_correction',
-    //             //         'rejected',
-    //             //         'revert'
-    //             //     ]);
-    //             // });
-    //             $q->where(function ($innerQ) {
-    //                 $innerQ->where(function ($subInnerQ) {
-    //                     // Non-thesis → block to_do & on_going also
-    //                     $subInnerQ->where('type_of_work', '!=', 'thesis')
-    //                         ->whereDoesntHave('writerData', function ($subQ) {
-    //                             $subQ->whereIn('status', [
-    //                                 'to_do',
-    //                                 'on_going',
-    //                                 'correction',
-    //                                 'plag_correction',
-    //                                 'rejected',
-    //                                 'revert',
-    //                                 'need_support',
-    //                             ]);
-    //                         });
-    //                 })
-    //                     ->orWhere(function ($subInnerQ) {
-    //                         // Thesis → only block correction, plag_correction, rejected, revert
-    //                         $subInnerQ->where('type_of_work', 'thesis')
-    //                             ->whereDoesntHave('writerData', function ($subQ) {
-    //                                 $subQ->whereIn('status', [
-    //                                     'correction',
-    //                                     'plag_correction',
-    //                                     'rejected',
-    //                                     'revert',
-    //                                     'need_support',
-    //                                 ]);
-    //                             });
-    //                     });
-    //             });
-    //             // $q->where(function ($query) {
-    //             //     $query->whereDoesntHave('writerData', function ($subQ) {
-    //             //         $subQ->whereIn('status', [
-    //             //             'to_do',
-    //             //             'on_going',
-    //             //             'correction',
-    //             //             'plag_correction',
-    //             //             'rejected',
-    //             //             'revert'
-    //             //         ]);
-    //             //     })
-    //             //         ->where(function ($subQ) {
-    //             //             $subQ->whereDoesntHave('writerData', function ($wq) {
-    //             //                 // ensure no incomplete writerData
-    //             //                 $wq->where('status', '!=', 'completed');
-    //             //             })
-    //             //                 ->whereDoesntHave('tcData', function ($tcQ) {
-    //             //                     $tcQ->where('status', 'correction')
-    //             //                         ->where('type', 'team_coordinator')
-    //             //                         ->where('type_sme', 'statistican');
-    //             //                 });
-    //             //         });
-    //             // });
-
-    //             // $q->whereDoesntHave('reviewerData', function ($subQ) {
-    //             //     $subQ->whereIn('status', [
-    //             //         'to_do',
-    //             //         'on_going',
-    //             //         'correction',
-    //             //         'plag_correction',
-    //             //         'rejected',
-    //             //         'revert'
-    //             //     ]);
-    //             // });
-
-    //             // Reviewer condition → skip to_do/on_going for thesis
-    //             $q->where(function ($innerQ) {
-    //                 $innerQ->where(function ($subInnerQ) {
-    //                     // Non-thesis → block to_do & on_going also
-    //                     $subInnerQ->where('type_of_work', '!=', 'thesis')
-    //                         ->whereDoesntHave('reviewerData', function ($subQ) {
-    //                             $subQ->whereIn('status', [
-    //                                 'to_do',
-    //                                 'on_going',
-    //                                 'correction',
-    //                                 'plag_correction',
-    //                                 'rejected',
-    //                                 'revert',
-    //                                 'need_support',
-    //                             ]);
-    //                         });
-    //                 })
-    //                     ->orWhere(function ($subInnerQ) {
-    //                         $subInnerQ->where('type_of_work', 'thesis')
-    //                             ->whereDoesntHave('reviewerData', function ($subQ) {
-    //                                 $subQ->whereIn('status', [
-    //                                     'correction',
-    //                                     'plag_correction',
-    //                                     'rejected',
-    //                                     'revert',
-    //                                     'need_support',
-    //                                 ]);
-    //                             });
-    //                     });
-    //             });
-    //             // $q->whereDoesntHave('tcData', function ($subQ) {
-    //             //     $subQ->where('status', 'correction')
-    //             //         ->where('type', 'team_coordinator')
-    //             //         ->where('type_sme', 'statistican');
-    //             // });
-    //             $q->whereDoesntHave('statisticanData', function ($subQ) {
-    //                 $subQ->whereIn('status', [
-    //                     'to_do',
-    //                     'on_going',
-    //                     'correction',
-    //                     'plag_correction',
-    //                     'rejected',
-    //                     'revert',
-    //                     'need_support',
-    //                 ]);
-    //             });
-
-    //             $q->whereDoesntHave('projectAcceptStatust', function ($sq) {
-    //                 $sq->where('status', 'rejected');
-    //             });
-
-    //             $q->whereDoesntHave('smeData', function ($subQ) {
-    //                 $subQ->where('status', 'need_support');
-    //             });
-    //         })
-    //         ->get()
-    //         ->unique('project_id')
-    //         ->filter(function ($row) {
-    //             if ($row->projectData->tcData->isNotEmpty()) {
-    //                 return true;
-    //             }
-
-    //             $writerStatus = optional($row->projectData->writerData->first())->status;
-    //             $reviewerStatus = optional($row->projectData->reviewerData->first())->status;
-    //             $statisticianStatus = optional($row->projectData->statisticanData->first())->status;
-
-    //             return ! (
-    //                 $writerStatus === 'completed' &&
-    //                 $reviewerStatus === 'completed' &&
-    //                 $statisticianStatus === 'completed'
-    //             );
-    //         })
-    //         ->values();
-
-    //     $peopleIds_sme = People::where('position', '13')
-    //         ->pluck('id')
-    //         ->filter()
-    //         ->values()
-    //         ->toArray();
-
-    //     $projectAssignDetails = ProjectAssignDetails::pluck('project_id');
-
-    //     $tcTodoListQuery = EntryProcessModel::with([
-    //         'userData',
-    //         'writerData',
-    //         'reviewerData',
-    //         'statisticanData',
-    //         'journalData',
-    //     ])
-
-    //         ->where('process_status', 'in_progress')
-    //         ->whereYear('entry_date', $currentYear)
-    //         ->where('is_deleted', 0)
-    //         ->where('process_status', '!=', 'completed')
-    //         ->whereIn('created_by', $peopleIds_sme)
-    //         ->limit(100);
-
-    //     if ($projectAssignDetails->isNotEmpty()) {
-    //         $tcTodoListQuery->whereNotIn('id', $projectAssignDetails);
-    //     }
-
-    //     $tcTodoList = $tcTodoListQuery->orderBy('id', 'desc')->get();
-
-    //     $adminTodoListQuery = EntryProcessModel::with([
-    //         'userData',
-    //         'writerData',
-    //         'reviewerData',
-    //         'statisticanData',
-    //         'journalData',
-    //     ])
-    //         ->where('process_status', 'in_progress')
-    //         ->whereYear('entry_date', $currentYear)
-    //         ->where('is_deleted', 0)
-    //         ->where('process_status', '!=', 'completed')
-    //         ->where('created_by', 9);
-
-    //     if ($projectAssignDetails->isNotEmpty()) {
-    //         $adminTodoListQuery->whereNotIn('id', $projectAssignDetails);
-    //     }
-
-    //     $adminTodoList = $adminTodoListQuery->orderBy('id', 'desc')->get();
-
-    //     $todoItems = collect($tcTodoList)
-    //         ->merge(
-    //             collect($adminTodoList)
-    //                 ->filter(function ($item) {
-    //                     return ! empty($item->writerData)
-    //                         || ! empty($item->reviewerData)
-    //                         || ! empty($item->statisticanData)
-    //                         || ! empty($item->journalData);
-    //                 })
-    //         )
-    //         ->merge($tc_to_do)
-    //         ->sortByDesc('updated_at')
-    //         ->map(function ($item) {
-    //             $hasAnyRole =
-    //                 (isset($item->writerData) && $item->writerData->isEmpty()) ||
-    //                 (isset($item->reviewerData) && $item->reviewerData->isEmpty()) ||
-    //                 (isset($item->statisticanData) && $item->statisticanData->isEmpty()) ||
-    //                 (isset($item->journalData) && $item->journalData->isEmpty());
-
-    //             return [
-    //                 'id' => $item->id ?? null,
-    //                 'project_id' => $item->project_id ?? null,
-    //                 'project_ids' => $item->projectData->project_id ?? null,
-    //                 'hierarchy_level' => $item->hierarchy_level ?? null,
-    //                 'hierarchy_levels' => $item->projectData->hierarchy_level ?? null,
-    //                 'process_status' => $item->process_status ?? null,
-    //                 'process_statuses' => $item->projectData->process_status ?? null,
-    //                 'created_by' => $item->created_by ?? null,
-    //                 'has_role' => $hasAnyRole,
-    //             ];
-    //         })
-    //         ->values();
-
-    //     $TcNotAssigned = $todoItems->filter(function ($item) {
-    //         return $item['has_role'] === true;
-    //     })->pluck('id')->all();
-    //     $hasRoleTrueCount = count($TcNotAssigned);
-
-    //     $merged_to_do_list = $tcTodoList->merge($adminTodoList)->merge($tc_to_do);
-    //     $merged_to_do_list_count = $merged_to_do_list->count();
-
-    //     //not assigned tc
-    //     $projectIds = isset($projectIds) ? $projectIds : [];
-
-    //     $revertdetails = ProjectAssignDetails::with([
-    //         'projectData.writerData',
-    //         'projectData.reviewerData',
-    //         'projectData.statisticanData',
-    //         'projectData.tcData',
-    //     ])
-    //         ->whereIn('project_id', $projectIds)
-    //         ->where('status', 'revert')
-    //         ->orderBy('updated_at', 'desc')
-    //         ->whereHas('projectData', function ($query) {
-    //             $query->where('is_deleted', 0)
-    //                 ->where('process_status', '!=', 'completed')
-    //                 ->whereDoesntHave('projectAcceptStatust', function ($sq) {
-    //                     $sq->where('status', 'rejected');
-    //                 })
-    //                 ->whereDoesntHave('writerData', function ($sq) {
-    //                     $sq->whereIn('status', ['to_do', 'on_going']);
-    //                 })
-    //                 ->whereDoesntHave('reviewerData', function ($sq) {
-    //                     $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
-    //                 })
-    //                 ->whereDoesntHave('statisticanData', function ($sq) {
-    //                     $sq->whereIn('status', ['to_do', 'on_going']);
-    //                 });
-    //         })
-    //         ->get()
-    //         ->unique('project_id');
-
-    //     $notAssignedProjects = EntryProcessModel::where('process_status', 'not_assigned')
-    //         ->select('id', 'project_id', 'type_of_work', 'process_status', 'hierarchy_level', 'created_at')
-    //         ->where('is_deleted', 0)
-    //         ->orderBy('updated_at', 'desc')
-    //         ->get();
-
-    //     $statisticianWithoutWriter = ProjectAssignDetails::with([
-    //         'projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at',
-    //     ])
-    //         ->where('type', 'team_coordinator')
-    //         ->whereIn('type_sme', ['writer', 'Publication Manager', 'reviewer', '2nd_writer'])
-    //         ->where('status', 'completed')
-    //         ->whereNotIn('status', ['need_support'])
-    //         ->whereHas('projectData', function ($query) {
-    //             $query->where('is_deleted', 0)
-    //                 ->where('process_status', '!=', 'completed')
-    //                 ->whereDoesntHave('writerData', function ($sq) {
-    //                     $sq->whereIn('status', ['correction', 'to_do', 'on_going']);
-    //                 })
-    //                 ->whereDoesntHave('reviewerData', function ($sq) {
-    //                     $sq->whereIn('status', ['correction', 'to_do', 'need_support', 'revert', 'on_going']);
-    //                 });
-
-    //         })
-    //         ->select('project_id', 'status', 'type', 'updated_at')
-    //         ->orderBy('updated_at', 'desc')
-    //         ->get()
-    //         ->unique('project_id');
-
-    //     $writerCompletedProjects = ProjectAssignDetails::whereIn('status', ['completed'])
-    //         ->with(['projectData:id,project_id,type_of_work,process_status,hierarchy_level,created_at'])
-    //         ->where('type', 'writer')
-    //         ->whereIn('project_id', $projectIds)
-    //         ->orderBy('updated_at', 'desc')
-    //         ->whereHas('projectData', function ($query) {
-    //             $query->where('is_deleted', 0)
-    //                 ->where('process_status', '!=', 'completed')
-    //                 ->whereDoesntHave('projectAcceptStatust', function ($sq) {
-    //                     $sq->where('status', 'rejected');
-    //                 })
-    //                 ->whereDoesntHave('writerData', function ($sq) {
-    //                     $sq->whereIn('status', ['to_do', 'on_going']);
-    //                 })
-    //                 ->whereDoesntHave('reviewerData', function ($sq) {
-    //                     $sq->whereIn('status', ['to_do', 'on_going', 'correction']);
-    //                 });
-    //         })
-    //         ->select('project_id', 'status', 'type', 'updated_at')
-    //         ->orderBy('created_at', 'desc')
-    //         ->get();
-
-    //     $allWriterProjects = $writerCompletedProjects->unique('project_id')->values();
-
-    //     $writerProjectIds = $allWriterProjects->pluck('project_id')->unique()->toArray();
-
-    //     $reviewerProjects = ProjectAssignDetails::whereIn('project_id', $writerProjectIds)
-    //         ->where('type', 'reviewer')
-    //         ->pluck('project_id')
-    //         ->unique()
-    //         ->toArray();
-
-    //     $writerWithoutReviewer = $allWriterProjects->filter(function ($writer) use ($reviewerProjects) {
-    //         $typeOfWork = $writer->projectData->type_of_work ?? null;
-
-    //         // Count completed writers
-    //         $writerCount = ProjectAssignDetails::where('project_id', $writer->project_id)
-    //             ->where('type', 'writer')
-    //             ->where('status', 'completed')
-    //             ->count();
-
-    //         // if ($typeOfWork === 'thesis' && $writerCount === 2) {
-    //         //     // Count reviewers assigned (any status)
-    //         //     $reviewerCount = ProjectAssignDetails::where('project_id', $writer->project_id)
-    //         //         ->where('type', 'reviewer')
-    //         //         ->count();
-
-    //         //     return $reviewerCount < 2;
-    //         // }
-
-    //         return ! in_array($writer->project_id, $reviewerProjects);
-    //     })
-    //         ->unique('project_id')
-    //         ->sortByDesc('updated_at')
-    //         ->values();
-
-    //     // $revert_writer = $writerWithoutReviewer;
-    //     $revert_writer = collect()
-    //         // ->merge($writerWithoutReviewer)
-    //         ->merge($statisticianWithoutWriter)
-    //         ->sortByDesc('updated_at')
-    //         ->unique('project_id')
-    //         ->values();
-
-    //     $tc_notAssigned = $revert_writer->count();
-
-    //     // $revertCounts = $revertdetails->count();
-
-    //     // In progress
-    //     $statusesInProgress = ['in_progress'];
-    //     $inProgress = getEntryProcessData($statusesInProgress, $currentYear);
-    //     $inProgressCount = getEntryProcessCount($statusesInProgress, $currentYear);
-
-    //     // To-do list
-    //     $statusesToDo = ['to_do', 'not_assigned'];
-    //     $tasks = getEntryProcessData($statusesToDo, $currentYear);
-    //     $to_docount = getEntryProcessCount($statusesToDo, $currentYear);
-
-    //     // In work list
-    //     $inWorksStatuses = ['pending_author'];
-    //     $inWorks = getEntryProcessData($inWorksStatuses, $currentYear);
-    //     $inWorksCount = getEntryProcessCount($inWorksStatuses, $currentYear);
-
-    //     // Review list
-    //     $reviewsStatuses = ['withdrawal'];
-    //     $reviews = getEntryProcessData($reviewsStatuses, $currentYear);
-    //     $reviewerCount = getEntryProcessCount($reviewsStatuses, $currentYear);
-
-    //     // Completed list
-    //     $completedStatuses = ['completed'];
-    //     $completed = getEntryProcessData($completedStatuses, $currentYear);
-    //     $completedCount = getEntryProcessCount($completedStatuses, $currentYear);
-
-    //     // Correction list
-    //     $correctionsStatuses = ['in_progress'];
-    //     $corrections = getEntryProcessData($correctionsStatuses, $currentYear);
-    //     $correctionsCount = getEntryProcessCount($correctionsStatuses, $currentYear);
-
-    //     //people wise response data
-    //     $totalProjects = People::select('id', 'employee_name', 'position')->with(['createdByUser'])
-    //         ->where('position', '!=', 'Admin')
-    //         ->whereIn('position', [7, 8, 10, 11])
-    //         ->get();
-
-    //     // Initialize common queries for EntryProcessModel based on the position
-    //     $entryProcessData = EntryProcessModel::with(['writerData', 'reviewerData', 'statisticanData'])
-    //         ->select('id', 'writer', 'reviewer', 'journal', 'statistican')->whereIn('writer', $totalProjects->pluck('id'))
-    //         ->whereHas('reviewerData', function ($query) use ($totalProjects) {
-    //             $query->where('status', '!=', 'completed')
-    //                 ->whereIn('assign_user', $totalProjects->pluck('id')->toArray());
-    //         })
-    //         ->whereHas('writerData', function ($query) use ($totalProjects) {
-    //             $query->where('status', '!=', 'completed')
-    //                 ->whereIn('assign_user', $totalProjects->pluck('id')->toArray());
-    //         })
-    //         ->whereHas('statisticanData', function ($query) use ($totalProjects) {
-    //             $query->where('status', '!=', 'completed')
-    //                 ->whereIn('assign_user', $totalProjects->pluck('id')->toArray());
-    //         })
-    //         // ->orWhereIn('statistican', $totalProjects->pluck('id'))
-    //         ->whereYear('entry_date', $currentYear)
-    //         ->where('process_status', '!=', 'completed')
-    //         ->where('is_deleted', 0)
-    //         ->get();
-
-    //     $projectLogsData = ProjectLogs::select('id', 'project_id', 'employee_id', 'status', 'status_date', 'status_type')->whereIn('employee_id', $totalProjects->pluck('id'))
-    //         ->whereHas('entryProcess', function ($query) {
-    //             $query->where('is_deleted', 0)
-    //                 ->where('process_status', '!=', 'completed');
-    //         })
-    //         ->where('status', 'to_do')
-    //         ->get();
-
-    //     // Loop through each person and count based on their position
-    //     foreach ($totalProjects as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-
-    //         // Initialize counts
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $statisticanPendingCount = $journalPendingCount = 0;
-    //         $completedIn4Days = $completedIn5To8Days = $completedInMoreThan8Days = 0;
-    //         $projectlist = [];
-
-    //         // Filter EntryProcessData by role
-    //         $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
-    //             switch ($emp_pos) {
-    //                 case 7:
-    //                     return $item->writerData->assign_user == $emp_id;
-    //                 case 8:
-    //                     return $item->reviewerData->assign_user == $emp_id;
-    //                 case 10:
-    //                     return $item->journalData->assign_user == $emp_id;
-    //                 case 11:
-    //                     return $item->statisticanData->assign_user == $emp_id;
-    //                 default:
-    //                     return false;
-    //             }
-    //         });
-
-    //         // Calculate counts
-    //         $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->writerData && $item->writerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->reviewerData && $item->reviewerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->journalData && $item->journalData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->statisticanData && $item->statisticanData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-
-    //         // Pending counts
-    //         $entry->writerPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->writerData && $item->writerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->reviewerPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->reviewerData && $item->reviewerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->journalPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->journalData && $item->journalData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->statisticanPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->statisticanData && $item->statisticanData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-
-    //         // // Get project list for this employee
-    //         $projectlist = $projectLogsData->where('employee_id', $emp_id);
-
-    //         // Loop through the projects to calculate the date differences
-    //         foreach ($projectlist as $project) {
-
-    //             $statusDate = Carbon::parse($project->status_date);
-    //             $daysDifference = $statusDate->diffInDays($statusDate);
-
-    //             if ($daysDifference < 4) {
-    //                 $completedIn4Days++;
-    //             } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                 $completedIn5To8Days++;
-    //             } elseif ($daysDifference > 8) {
-    //                 $completedInMoreThan8Days++;
-    //             }
-    //         }
-
-    //         // Add completed days counts to the entry
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //     }
-
-    //     //inhouse projects
-    //     $totalProjectsInhouse = People::select('id', 'position', 'employee_name', 'employee_type')
-    //         ->where('position', '!=', 'Admin')
-    //         ->where('employee_type', '!=', 'freelancers')
-    //         ->whereIn('position', [7, 8, 11])
-    //         ->get()
-    //         ->map(function ($person) {
-    //             $person->created_by_users = $person->created_by_users; // Access the accessor
-
-    //             return $person;
-    //         });
-
-    //     foreach ($totalProjectsInhouse as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-    //         $positions = explode(',', $emp_pos);
-
-    //         // Initialize count variables
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
-    //         $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = $statisticanNeedCount = 0;
-    //         $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-    //         $projectlist = [];
-
-    //         $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)->get()->pluck('project_id')->toArray();
-    //         // Process position-wise counts
-    //         if (in_array('7', $positions)) {
-    //             $writerAssignment = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
-    //                 ->where('assign_user', $emp_id)
-    //                 ->where('type', 'writer')
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->writer_project_ids = $writerAssignment;
-    //             $writerCount = $writerAssignment->count();
-    //             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->where('type', 'writer')
-    //                 ->count();
-    //             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])
-    //                 ->where('type', 'writer')->count();
-    //             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->where('status', 'need_support')
-    //                 ->where('type', 'writer')->count();
-    //             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])
-    //                 ->where('type', 'writer')->count();
-    //         }
-
-    //         if (in_array('8', $positions)) {
-    //             $reviewerAssignments = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
-    //                 ->where('assign_user', $emp_id)
-    //                 ->where('type', 'reviewer')
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->reviewer_project_ids = $reviewerAssignments;
-    //             $reviewerCount = $reviewerAssignments->count();
-    //             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->where('type', 'reviewer')->count();
-    //             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->where('type', 'reviewer')->count();
-    //             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->where('status', 'need_support')->where('type', 'reviewer')->count();
-    //             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->where('type', 'reviewer')->count();
-    //         }
-
-    //         if (in_array('11', $positions)) {
-    //             $statisticanAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)->where('type', 'statistican')
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-    //             $entry->statistican_project_ids = $statisticanAssignment;
-    //             $statisticanCount = $statisticanAssignment->count();
-    //             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-
-    //                 ->where('type', 'statistican')->count();
-    //             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->where('type', 'statistican')->count();
-    //             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->where('type', 'statistican')->count();
-    //             $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->where('status', 'need_support')->where('type', 'statistican')->count();
-    //         }
-
-    //         $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-    //             ->where('assign_user', $emp_id)
-    //             ->whereIn('project_id', $writerDataId)
-    //             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //             ->whereHas('projectData', function ($query) {
-    //                 $query->where('process_status', '!=', 'completed')
-    //                     ->where('is_deleted', 0);
-    //             })
-    //             // Only apply employee_rejected filter if there are any related records
-    //             ->where(function ($query) {
-    //                 $query->whereDoesntHave('employee_rejected')
-    //                     ->orWhereHas('employee_rejected', function ($subQuery) {
-    //                         $subQuery->where('status', '!=', 'rejected');
-    //                     });
-    //             })
-    //             ->orderBy('id', 'desc')
-    //             ->get()
-    //             ->unique('project_id')
-    //             ->values();
-
-    //         $positionWiseCompletion = [];
-
-    //         $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-
-    //         $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-    //             return in_array($key, $positions);
-    //         }, ARRAY_FILTER_USE_KEY);
-
-    //         foreach ($projectlist as $project) {
-    //             $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-    //             $positions = isset($empposition) ? explode(',', $empposition) : [];
-
-    //             $statusType = $project->type;
-
-    //             $statusDateTime = new \DateTime($project->projectDuration);
-    //             $completedDateTime = new \DateTime($project->updated_at);
-    //             $interval = $statusDateTime->diff($completedDateTime);
-
-    //             $daysDifference = $interval->days + 1;
-
-    //             foreach ($positions as $position) {
-    //                 $position = trim($position);
-
-    //                 // Ensure only 'reviewer', 'writer', or 'statistican' is counted when applicable
-    //                 if (! isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-    //                     continue;
-    //                 }
-
-    //                 if (! isset($positionWiseCompletion[$position])) {
-    //                     $positionWiseCompletion[$position] = [
-    //                         'completed_in_4_days' => 0,
-    //                         'completed_in_5_to_8_days' => 0,
-    //                         'completed_in_more_than_8_days' => 0,
-    //                     ];
-    //                 }
-
-    //                 if ($daysDifference < 4) {
-    //                     $positionWiseCompletion[$position]['completed_in_4_days']++;
-    //                 } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                     $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-    //                 } else {
-    //                     $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-    //                 }
-    //             }
-    //             // }
-    //         }
-
-    //         // Ensure all required positions exist with default values
-    //         foreach ($filteredPositions as $position => $type) {
-    //             if (! isset($positionWiseCompletion[$position])) {
-    //                 $positionWiseCompletion[$position] = [
-    //                     'completed_in_4_days' => 0,
-    //                     'completed_in_5_to_8_days' => 0,
-    //                     'completed_in_more_than_8_days' => 0,
-    //                 ];
-    //             }
-    //         }
-
-    //         // Add counts to response
-    //         $entry->writer_count = $writerCount;
-    //         $entry->reviewer_count = $reviewerCount;
-    //         // $entry->journal_count = $journalCount;
-    //         $entry->statistican_count = $statisticanCount;
-
-    //         $entry->writerPendingCount = $writerPendingCount;
-    //         $entry->reviewerPendingCount = $reviewerPendingCount;
-    //         // $entry->journalPendingCount = $journalPendingCount;
-    //         $entry->statisticanPendingCount = $statisticanPendingCount;
-    //         $entry->statisticanOngoingCount = $statisticanOngoingCount;
-
-    //         $entry->writerOngoingCount = $writerOngoingCount;
-    //         $entry->reviewerOngoingCount = $reviewerOngoingCount;
-    //         $entry->writerNeedCount = $writerNeedCount;
-    //         $entry->reviewerNeedCount = $reviewerNeedCount;
-    //         $entry->statisticanNeedCount = $statisticanNeedCount;
-    //         // $entry->journalNeedCount = 0;
-    //         //$entry->journalOngoingCount = 0;
-
-    //         $entry->writerCorrectionCount = $writerCorrectionCount;
-    //         $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-    //         $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-    //         // $entry->journalCorrectionCount = 0;
-
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //         $entry->positionWiseCompletion = $positionWiseCompletion;
-    //     }
-
-    //     $filteredResultsInhouse = $totalProjectsInhouse->filter(function ($entry) {
-    //         return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    //     })->values();
-
-    //     //freelancer
-    //     $totalProjectsFreelancer = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
-    //         ->where('position', '!=', 'Admin')
-    //         ->where('employee_type', '=', 'freelancers')
-    //         ->whereIn('position', [7, 8, 10, 11])
-    //         ->get()
-    //         ->map(function ($person) {
-    //             $person->created_by_users = $person->created_by_users;
-
-    //             return $person;
-    //         });
-
-    //     // Loop through each person and count based on their position
-    //     foreach ($totalProjectsFreelancer as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-
-    //         // Convert position string to an array
-    //         $positions = explode(',', $emp_pos);
-
-    //         // Initialize count variables
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
-    //         $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
-    //         $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-    //         // Initialize count variables for each role
-    //         $completedProjects = 0;
-    //         $projectlist = [];
-
-    //         // Fetch project list based on all positions
-    //         $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)->get()->pluck('project_id')->toArray();
-
-    //         if (in_array('7', $positions)) {
-    //             $writerAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->writer_project_ids = $writerAssignment;
-    //             $writerCount = $writerAssignment->count();
-    //             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->count();
-    //             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->count();
-    //             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->where('status', 'need_support')->count();
-    //             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->count();
-    //         }
-
-    //         if (in_array('8', $positions)) {
-    //             $reviewerAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->reviewer_project_ids = $reviewerAssignment;
-    //             $reviewerCount = $reviewerAssignment->count();
-    //             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->count();
-    //             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->count();
-    //             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->where('status', 'need_support')->count();
-    //             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->count();
-    //         }
-
-    //         if (in_array('11', $positions)) {
-    //             $statisticanAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->statistican_project_ids = $statisticanAssignment;
-    //             $statisticanCount = $statisticanAssignment->count();
-    //             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->count();
-    //             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->count();
-    //             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->count();
-    //         }
-
-    //         if (in_array('10', $positions)) {
-    //             $journalCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
-    //             $journalPendingCount = 0;
-    //             $journalOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'on_going')->count();
-    //             $journalCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction_1'])->count();
-    //         }
-
-    //         $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-    //             ->where('assign_user', $emp_id)
-    //             // ->whereIn('status', ['to_do', 'on_going'])
-    //             ->whereIn('project_id', $writerDataId)
-    //             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //             ->whereHas('projectData', function ($query) {
-    //                 $query->where('process_status', '!=', 'completed')
-    //                     ->where('is_deleted', 0);
-    //             })
-    //             ->whereHas('employee_rejected', function ($query) {
-    //                 $query->where('status', '!=', 'rejected');
-    //             })
-    //             ->orderBy('id', 'desc')
-    //             ->get()
-    //             ->unique('project_id')
-    //             ->values();
-    //         $positionWiseCompletion = [];
-
-    //         $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-
-    //         $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-    //             return in_array($key, $positions);
-    //         }, ARRAY_FILTER_USE_KEY);
-
-    //         foreach ($projectlist as $project) {
-    //             $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-    //             $positions = isset($empposition) ? explode(',', $empposition) : [];
-
-    //             $statusType = $project->type;
-
-    //             $statusDateTime = new \DateTime($project->projectDuration);
-    //             $completedDateTime = new \DateTime($project->updated_at);
-    //             $interval = $statusDateTime->diff($completedDateTime);
-
-    //             $daysDifference = $interval->days + 1;
-
-    //             foreach ($positions as $position) {
-    //                 $position = trim($position);
-
-    //                 // Ensure only 'reviewer', 'writer', or 'statistican' is counted when applicable
-    //                 if (! isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-    //                     continue;
-    //                 }
-
-    //                 if (! isset($positionWiseCompletion[$position])) {
-    //                     $positionWiseCompletion[$position] = [
-    //                         'completed_in_4_days' => 0,
-    //                         'completed_in_5_to_8_days' => 0,
-    //                         'completed_in_more_than_8_days' => 0,
-    //                     ];
-    //                 }
-    //                 if ($daysDifference < 4) {
-    //                     $positionWiseCompletion[$position]['completed_in_4_days']++;
-    //                 } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                     $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-    //                 } else {
-    //                     $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-    //                 }
-    //             }
-    //             // }
-    //         }
-
-    //         foreach ($filteredPositions as $position => $type) {
-    //             if (! isset($positionWiseCompletion[$position])) {
-    //                 $positionWiseCompletion[$position] = [
-    //                     'completed_in_4_days' => 0,
-    //                     'completed_in_5_to_8_days' => 0,
-    //                     'completed_in_more_than_8_days' => 0,
-    //                 ];
-    //             }
-    //         }
-
-    //         // Add the counts to the person's data for response
-    //         $entry->writer_count = $writerCount;
-    //         $entry->reviewer_count = $reviewerCount;
-    //         $entry->journal_count = $journalCount;
-    //         $entry->statistican_count = $statisticanCount;
-
-    //         $entry->writerPendingCount = $writerPendingCount;
-    //         $entry->reviewerPendingCount = $reviewerPendingCount;
-    //         $entry->journalPendingCount = $journalPendingCount;
-    //         $entry->statisticanPendingCount = $statisticanPendingCount;
-    //         $entry->statisticanOngoingCount = $statisticanOngoingCount;
-
-    //         $entry->writerOngoingCount = $writerOngoingCount;
-    //         $entry->reviewerOngoingCount = $reviewerOngoingCount;
-    //         $entry->writerNeedCount = $writerNeedCount;
-    //         $entry->reviewerNeedCount = $reviewerNeedCount;
-
-    //         $entry->writerCorrectionCount = $writerCorrectionCount;
-    //         $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-    //         $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //         $entry->positionWiseCompletion = $positionWiseCompletion;
-    //     }
-
-    //     $filteredResultsfreelancer = $totalProjectsFreelancer->filter(function ($entry) {
-    //         return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    //     })->values();
-    //     //thesis project
-    //     // $allWriterData = [];
-    //     $allWriterData = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
-    //         ->where('position', '!=', 'Admin')
-    //         ->whereIn('position', [7, 8, 11])
-    //         ->get()
-    //         ->map(function ($person) {
-    //             $person->created_by_users = $person->created_by_users;
-
-    //             return $person;
-    //         });
-
-    //     foreach ($allWriterData as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-    //         $positions = explode(',', $emp_pos);
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
-    //         $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
-    //         $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-    //         // Initialize count variables for each role
-    //         $completedProjects = 0;
-    //         $projectlist = [];
-
-    //         // Fetch project list based on all positions
-    //         $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)->get()->pluck('project_id')->toArray();
-
-    //         // Process position-wise counts
-    //         if (in_array('7', $positions)) {
-    //             $writerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) {
-
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0);
-    //                     // ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->where('type', 'writer')
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->writer_project_ids = $writerAssignment;
-    //             $writerCount = $writerAssignment->count();
-    //             // $writerCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
-    //             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0);
-    //                 })
-
-    //                 ->count();
-    //             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['on_going', 'to_do'])->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'need_support')->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction', 'plag_correction'])->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //         }
-
-    //         if (in_array('8', $positions)) {
-    //             $reviewerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)->where('type', 'reviewer')
-
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0);
-    //                 })
-
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->reviewer_project_ids = $reviewerAssignment;
-    //             $reviewerCount = $reviewerAssignment->count();
-
-    //             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['on_going', 'to_do'])->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'need_support')->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction', 'plag_correction'])->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //         }
-
-    //         if (in_array('11', $positions)) {
-    //             $statisticanAssignment = ProjectAssignDetails::where('assign_user', $emp_id)->where('type', 'statistican')
-
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0);
-    //                     // ->where('process_status', '!=', 'completed');
-    //                 })
-
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->statistican_project_ids = $statisticanAssignment;
-    //             $statisticanCount = $statisticanAssignment->count();
-    //             // $statisticanCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
-    //             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['on_going', 'to_do'])->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'need_support')->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-
-    //             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction', 'plag_correction'])->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //         }
-
-    //         $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-    //             ->where('assign_user', $emp_id)
-    //             // ->whereIn('status', ['to_do', 'on_going'])
-    //             ->whereIn('project_id', $writerDataId)
-    //             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //             ->whereHas('projectData', function ($query) {
-    //                 $query->where('type_of_work', 'thesis')
-    //                     ->where('process_status', '!=', 'completed')
-    //                     ->where('is_deleted', 0);
-    //             })
-    //             ->whereHas('employee_rejected', function ($query) {
-    //                 $query->where('status', '!=', 'rejected');
-    //             })
-    //             ->orderBy('id', 'desc')
-    //             ->get()
-    //             ->unique('project_id')
-    //             ->values();
-
-    //         $positionWiseCompletion = [];
-    //         $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-
-    //         $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-    //             return in_array($key, $positions);
-    //         }, ARRAY_FILTER_USE_KEY);
-
-    //         foreach ($projectlist as $project) {
-    //             $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-    //             $positions = isset($empposition) ? explode(',', $empposition) : [];
-
-    //             $statusType = $project->type;
-
-    //             $statusDateTime = new \DateTime($project->projectDuration);
-    //             $completedDateTime = new \DateTime($project->updated_at);
-    //             $interval = $statusDateTime->diff($completedDateTime);
-
-    //             $daysDifference = $interval->days + 1;
-
-    //             foreach ($positions as $position) {
-    //                 $position = trim($position);
-
-    //                 if (! isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-    //                     continue;
-    //                 }
-
-    //                 if (! isset($positionWiseCompletion[$position])) {
-    //                     $positionWiseCompletion[$position] = [
-    //                         'completed_in_4_days' => 0,
-    //                         'completed_in_5_to_8_days' => 0,
-    //                         'completed_in_more_than_8_days' => 0,
-    //                     ];
-    //                 }
-
-    //                 if ($daysDifference < 4) {
-    //                     $positionWiseCompletion[$position]['completed_in_4_days']++;
-    //                 } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                     $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-    //                 } else {
-    //                     $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-    //                 }
-    //             }
-    //             // }
-    //         }
-
-    //         foreach ($filteredPositions as $position => $type) {
-    //             if (! isset($positionWiseCompletion[$position])) {
-    //                 $positionWiseCompletion[$position] = [
-    //                     'completed_in_4_days' => 0,
-    //                     'completed_in_5_to_8_days' => 0,
-    //                     'completed_in_more_than_8_days' => 0,
-    //                 ];
-    //             }
-    //         }
-
-    //         // Add the counts to the person's data for response
-    //         $entry->writer_count = $writerCount;
-    //         $entry->reviewer_count = $reviewerCount;
-    //         // $entry->journal_count = $journalCount;
-    //         $entry->statistican_count = $statisticanCount;
-
-    //         $entry->writerPendingCount = $writerPendingCount;
-    //         $entry->reviewerPendingCount = $reviewerPendingCount;
-    //         // $entry->journalPendingCount = $journalPendingCount;
-    //         $entry->statisticanPendingCount = $statisticanPendingCount;
-    //         $entry->statisticanNeedCount = $statisticanNeedCount;
-    //         $entry->statisticanOngoingCount = $statisticanOngoingCount;
-
-    //         $entry->writerOngoingCount = $writerOngoingCount;
-    //         $entry->reviewerOngoingCount = $reviewerOngoingCount;
-    //         $entry->writerNeedCount = $writerNeedCount;
-    //         $entry->reviewerNeedCount = $reviewerNeedCount;
-
-    //         $entry->writerCorrectionCount = $writerCorrectionCount;
-    //         $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-    //         $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //         $entry->positionWiseCompletion = $positionWiseCompletion;
-    //     }
-
-    //     $allWriterData_thesis = $allWriterData->filter(function ($entry) {
-    //         return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    //     })->values();
-
-    //     $urgentDataList = EntryProcessModel::select('id', 'journal', 'writer', 'statistican', 'reviewer', 'hierarchy_level', 'project_id')->where('hierarchy_level', 'urgent_important')
-    //         ->where('is_deleted', 0)
-    //         ->where('process_status', '!=', 'completed')
-    //         ->whereYear('entry_date', $currentYear)
-    //         ->orderBy('id', 'desc')
-    //         ->get();
-
-    //     // Count the urgent data
-    //     $urgentDataListCount = $urgentDataList->count();
-
-    //     $projectdelayDataList = EntryProcessModel::with(['paymentProcess', 'instituteInfo', 'departmentInfo', 'professionInfo'])->select(
-    //         'id',
-    //         'title',
-    //         'institute',
-    //         'department',
-    //         'entry_date',
-    //         'profession',
-    //         'client_name',
-    //         DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration"),
-    //         'hierarchy_level',
-    //         'project_id'
-    //     )
-    //         ->where('projectduration', '<', $currentDate)
-    //         ->where('is_deleted', 0)
-    //         ->where('process_status', '!=', 'completed')
-    //         ->whereYear('entry_date', $currentYear)
-    //         ->orderBy('id', 'desc')
-    //         ->get();
-
-    //     $projectdelayDataCount = $projectdelayDataList->count();
-
-    //     // Prepare response data
-    //     $responseData = [
-    //         // 'peoplewise' => $totalProjects,
-    //         'peopleInhouse' => $filteredResultsInhouse,
-    //         'peopleExternal' => $filteredResultsfreelancer,
-    //         'peopleWriterExternal' => $allWriterData_thesis,
-    //         'typeofwork' => $typeOfWorkCounts,
-
-    //         'process_staus' => $processStatusCounts,
-    //         'journal_status' => $result,
-    //         'completedCount' => $completedCounts,
-    //         'emergencywork' => $urgentImportantCount,
-
-    //         'not_assigned' => $notAssignedCount,
-    //         'project_delaycount' => $projectdelayDataCount,
-
-    //         'freelancet_payment_count' => $freelancerPaymentCount,
-
-    //         'total_count' => $totalCount,
-    //         'position' => $position,
-
-    //         'monthwiseData' => $monthwiseData,
-
-    //         'paymentStatusCounts' => $paymentStatusCounts,
-    //         'inProgress' => $inProgress,
-    //         'inProgressCount' => $inProgressCount,
-    //         'urgentDataList' => $urgentDataList,
-    //         'urgentDataListCount' => $urgentDataListCount,
-    //         'projectdelayDataList' => $projectdelayDataList,
-    //         'projectdelayDataCount' => $projectdelayDataCount,
-    //         'freelancerProjecctList' => $freelancers,
-    //         'freelancerProjecctCount' => $freelancerPaymentCount,
-    //         'projectStatusList' => $projectStatusList,
-    //         'projectStatusCount' => $projectStatusCount,
-    //         'tc_to_do_lists' => $todoItems,
-
-    //         'tc_to_do_list_count' => $merged_to_do_list_count,
-
-    //         'inToDoList' => $notAssignedProjects,
-    //         'inToDoListCount' => $inToDoListCount,
-
-    //         'revert_writer' => $revert_writer,
-
-    //         'revert' => $revertdetails,
-    //         'TcNotAssignedCount' => $hasRoleTrueCount,
-    //         'tcnotAssigned' => $TcNotAssigned,
-    //         'notAssigned' => $notAssignedProjects,
-    //     ];
-
-    //     return response()->json($responseData);
-
-    //     return [];
-    // }
-
-    //common for 3 dasboard
-    // public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
-    // {
-    //     // dd($fromDate, $toDate);
-    //     $currentYear = date('Y');
-    //     if (! $fromDate) {
-    //         $fromDate = date('Y-m-d');
-    //     }
-    //     if (! $toDate) {
-    //         $toDate = date('Y-m-d');
-    //     }
-    //     //people wise response data
-    //     $totalProjects = People::select('id', 'employee_name', 'position')->with(['createdByUser'])
-    //         ->where('position', '!=', 'Admin')
-    //         ->whereIn('position', [7, 8, 10, 11])
-    //         ->where('status', '1')
-    //         ->get();
-
-    //     // Initialize common queries for EntryProcessModel based on the position
-    //     $entryProcessData = EntryProcessModel::with(['writerData', 'reviewerData', 'statisticanData'])
-    //         ->select('id', 'writer', 'reviewer', 'journal', 'statistican')->whereIn('writer', $totalProjects->pluck('id'))
-    //         ->whereHas('reviewerData', function ($query) use ($totalProjects) {
-    //             $query->where('status', '!=', 'completed')
-    //                 ->whereIn('assign_user', $totalProjects->pluck('id')->toArray());
-    //         })
-    //         ->whereHas('writerData', function ($query) use ($totalProjects) {
-    //             $query->where('status', '!=', 'completed')
-    //                 ->whereIn('assign_user', $totalProjects->pluck('id')->toArray());
-    //         })
-    //         ->whereHas('statisticanData', function ($query) use ($totalProjects) {
-    //             $query->where('status', '!=', 'completed')
-    //                 ->whereIn('assign_user', $totalProjects->pluck('id')->toArray());
-    //         })
-    //         // ->orWhereIn('statistican', $totalProjects->pluck('id'))
-    //         // ->whereYear('entry_date', $currentYear)
-    //         ->whereDate('entry_date', '>=', $fromDate)
-    //         ->whereDate('entry_date', '<=', $toDate)
-    //         ->where('process_status', '!=', 'completed')
-    //         ->where('is_deleted', 0)
-    //         ->get();
-
-    //     $projectLogsData = ProjectLogs::select('id', 'project_id', 'employee_id', 'status', 'status_date', 'status_type')->whereIn('employee_id', $totalProjects->pluck('id'))
-    //         ->whereHas('entryProcess', function ($query) use ($fromDate, $toDate) {
-    //             $query->where('is_deleted', 0)
-    //                 ->whereDate('entry_date', '>=', $fromDate)
-    //                 ->whereDate('entry_date', '<=', $toDate)
-    //                 ->where('process_status', '!=', 'completed');
-    //         })
-    //         ->where('status', 'to_do')
-    //         ->get();
-
-    //     // Loop through each person and count based on their position
-    //     foreach ($totalProjects as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-
-    //         // Initialize counts
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $statisticanPendingCount = $journalPendingCount = 0;
-    //         $completedIn4Days = $completedIn5To8Days = $completedInMoreThan8Days = 0;
-    //         $projectlist = [];
-
-    //         // Filter EntryProcessData by role
-    //         $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
-    //             switch ($emp_pos) {
-    //                 case 7:
-    //                     return $item->writerData->assign_user == $emp_id;
-    //                 case 8:
-    //                     return $item->reviewerData->assign_user == $emp_id;
-    //                 case 10:
-    //                     return $item->journalData->assign_user == $emp_id;
-    //                 case 11:
-    //                     return $item->statisticanData->assign_user == $emp_id;
-    //                 default:
-    //                     return false;
-    //             }
-    //         });
-
-    //         // Calculate counts
-    //         $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->writerData && $item->writerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->reviewerData && $item->reviewerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->journalData && $item->journalData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->statisticanData && $item->statisticanData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-
-    //         // Pending counts
-    //         $entry->writerPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->writerData && $item->writerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->reviewerPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->reviewerData && $item->reviewerData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->journalPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->journalData && $item->journalData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-    //         $entry->statisticanPendingCount = $filteredEntries->filter(function ($item) use ($emp_id) {
-    //             return $item->statisticanData && $item->statisticanData->assign_user == $emp_id && $item->process_status !== 'completed';
-    //         })->count();
-
-    //         // // Get project list for this employee
-    //         $projectlist = $projectLogsData->where('employee_id', $emp_id);
-
-    //         // Loop through the projects to calculate the date differences
-    //         foreach ($projectlist as $project) {
-
-    //             $statusDate = Carbon::parse($project->status_date);
-    //             $daysDifference = $statusDate->diffInDays($statusDate);
-
-    //             if ($daysDifference < 4) {
-    //                 $completedIn4Days++;
-    //             } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                 $completedIn5To8Days++;
-    //             } elseif ($daysDifference > 8) {
-    //                 $completedInMoreThan8Days++;
-    //             }
-    //         }
-
-    //         // Add completed days counts to the entry
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //     }
-
-    //     //inhouse projects
-    //     $totalProjectsInhouse = People::select('id', 'position', 'employee_name', 'employee_type')
-    //         ->where('position', '!=', 'Admin')
-    //         ->where('employee_type', '!=', 'freelancers')
-    //         ->whereIn('position', [7, 8, 11])
-    //         ->where('status', '1')
-    //         ->get()
-    //         ->map(function ($person) {
-    //             $person->created_by_users = $person->created_by_users; // Access the accessor
-
-    //             return $person;
-    //         });
-
-    //     foreach ($totalProjectsInhouse as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-    //         $positions = explode(',', $emp_pos);
-
-    //         // Initialize count variables
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
-    //         $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = $statisticanNeedCount = 0;
-    //         $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-    //         $projectlist = [];
-
-    //         $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)->get()->pluck('project_id')->toArray();
-    //         // Process position-wise counts
-    //         if (in_array('7', $positions)) {
-    //             $writerAssignment = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
-    //                 ->where('assign_user', $emp_id)
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query
-
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->writer_project_ids = $writerAssignment;
-    //             $writerCount = $writerAssignment->count();
-    //             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->where('type', 'writer')
-    //                 ->count();
-    //             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])
-    //                 ->where('type', 'writer')->count();
-    //             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->where('status', 'need_support')
-    //                 ->where('type', 'writer')->count();
-    //             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])
-    //                 ->where('type', 'writer')->count();
-    //         }
-
-    //         if (in_array('8', $positions)) {
-    //             $reviewerAssignments = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
-    //                 ->where('assign_user', $emp_id)
-    //                 ->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query
-
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->reviewer_project_ids = $reviewerAssignments;
-    //             $reviewerCount = $reviewerAssignments->count();
-    //             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->where('type', 'reviewer')->count();
-    //             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->where('type', 'reviewer')->count();
-    //             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->where('status', 'need_support')->where('type', 'reviewer')->count();
-    //             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->where('type', 'reviewer')->count();
-    //         }
-
-    //         if (in_array('11', $positions)) {
-    //             $statisticanAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query
-
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-    //             $entry->statistican_project_ids = $statisticanAssignment;
-    //             $statisticanCount = $statisticanAssignment->count();
-    //             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-
-    //                 ->where('type', 'statistican')->count();
-    //             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->where('type', 'statistican')->count();
-    //             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->where('type', 'statistican')->count();
-    //             $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->where('status', 'need_support')->where('type', 'statistican')->count();
-    //         }
-
-    //         $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-    //             ->where('assign_user', $emp_id)
-    //             ->whereIn('project_id', $writerDataId)
-    //             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                 $query->where('process_status', '!=', 'completed')
-    //                     ->where('is_deleted', 0)
-    //                     ->whereDate('entry_date', '>=', $fromDate)
-    //                     ->whereDate('entry_date', '<=', $toDate);
-    //             })
-    //             // Only apply employee_rejected filter if there are any related records
-    //             ->where(function ($query) {
-    //                 $query->whereDoesntHave('employee_rejected')
-    //                     ->orWhereHas('employee_rejected', function ($subQuery) {
-    //                         $subQuery->where('status', '!=', 'rejected');
-    //                     });
-    //             })
-    //             ->orderBy('id', 'desc')
-    //             ->get()
-    //             ->unique('project_id')
-    //             ->values();
-
-    //         $positionWiseCompletion = [];
-
-    //         $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-
-    //         $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-    //             return in_array($key, $positions);
-    //         }, ARRAY_FILTER_USE_KEY);
-
-    //         foreach ($projectlist as $project) {
-    //             $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-    //             $positions = isset($empposition) ? explode(',', $empposition) : [];
-
-    //             $statusType = $project->type;
-
-    //             $statusDateTime = new \DateTime($project->projectDuration);
-    //             $completedDateTime = new \DateTime($project->updated_at);
-    //             $interval = $statusDateTime->diff($completedDateTime);
-
-    //             $daysDifference = $interval->days + 1;
-
-    //             foreach ($positions as $position) {
-    //                 $position = trim($position);
-
-    //                 // Ensure only 'reviewer', 'writer', or 'statistican' is counted when applicable
-    //                 if (! isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-    //                     continue;
-    //                 }
-
-    //                 if (! isset($positionWiseCompletion[$position])) {
-    //                     $positionWiseCompletion[$position] = [
-    //                         'completed_in_4_days' => 0,
-    //                         'completed_in_5_to_8_days' => 0,
-    //                         'completed_in_more_than_8_days' => 0,
-    //                     ];
-    //                 }
-
-    //                 if ($daysDifference < 4) {
-    //                     $positionWiseCompletion[$position]['completed_in_4_days']++;
-    //                 } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                     $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-    //                 } else {
-    //                     $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-    //                 }
-    //             }
-    //             // }
-    //         }
-
-    //         // Ensure all required positions exist with default values
-    //         foreach ($filteredPositions as $position => $type) {
-    //             if (! isset($positionWiseCompletion[$position])) {
-    //                 $positionWiseCompletion[$position] = [
-    //                     'completed_in_4_days' => 0,
-    //                     'completed_in_5_to_8_days' => 0,
-    //                     'completed_in_more_than_8_days' => 0,
-    //                 ];
-    //             }
-    //         }
-
-    //         // Add counts to response
-    //         $entry->writer_count = $writerCount;
-    //         $entry->reviewer_count = $reviewerCount;
-    //         // $entry->journal_count = $journalCount;
-    //         $entry->statistican_count = $statisticanCount;
-
-    //         $entry->writerPendingCount = $writerPendingCount;
-    //         $entry->reviewerPendingCount = $reviewerPendingCount;
-    //         // $entry->journalPendingCount = $journalPendingCount;
-    //         $entry->statisticanPendingCount = $statisticanPendingCount;
-    //         $entry->statisticanOngoingCount = $statisticanOngoingCount;
-
-    //         $entry->writerOngoingCount = $writerOngoingCount;
-    //         $entry->reviewerOngoingCount = $reviewerOngoingCount;
-    //         $entry->writerNeedCount = $writerNeedCount;
-    //         $entry->reviewerNeedCount = $reviewerNeedCount;
-    //         $entry->statisticanNeedCount = $statisticanNeedCount;
-    //         // $entry->journalNeedCount = 0;
-    //         //$entry->journalOngoingCount = 0;
-
-    //         $entry->writerCorrectionCount = $writerCorrectionCount;
-    //         $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-    //         $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-    //         // $entry->journalCorrectionCount = 0;
-
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //         $entry->positionWiseCompletion = $positionWiseCompletion;
-    //     }
-
-    //     $filteredResultsInhouse = $totalProjectsInhouse->filter(function ($entry) {
-    //         return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    //     })->values();
-
-    //     //freelancer
-    //     $totalProjectsFreelancer = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
-    //         ->where('position', '!=', 'Admin')
-    //         ->where('employee_type', '=', 'freelancers')
-    //         ->whereIn('position', [7, 8, 10, 11])
-    //         ->where('status', '1')
-    //         ->get()
-    //         ->map(function ($person) {
-    //             $person->created_by_users = $person->created_by_users;
-
-    //             return $person;
-    //         });
-
-    //     // Loop through each person and count based on their position
-    //     foreach ($totalProjectsFreelancer as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-
-    //         // Convert position string to an array
-    //         $positions = explode(',', $emp_pos);
-
-    //         // Initialize count variables
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
-    //         $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
-    //         $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-    //         // Initialize count variables for each role
-    //         $completedProjects = 0;
-    //         $projectlist = [];
-
-    //         // Fetch project list based on all positions
-    //         $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)->get()->pluck('project_id')->toArray();
-
-    //         if (in_array('7', $positions)) {
-    //             // $writerAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)
-    //             //     ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //             //         $query->whereDate('entry_date', '>=', $fromDate)
-    //             //             ->whereDate('entry_date', '<=', $toDate);
-    //             //     })
-    //             //     ->get()
-    //             //     ->pluck('projectData.id')
-    //             //     ->filter();
-    //             $writerAssignment = ProjectAssignDetails::with('projectData')
-    //                 ->where('assign_user', $emp_id)
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter()
-    //                 ->unique()
-    //                 ->values();
-
-    //             $entry->writer_project_ids = $writerAssignment;
-    //             $writerCount = $writerAssignment->count();
-    //             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->count();
-    //             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->count();
-    //             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->where('status', 'need_support')->count();
-    //             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->count();
-    //         }
-
-    //         if (in_array('8', $positions)) {
-    //             $reviewerAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)
-    //                 ->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter()
-    //                 ->unique()
-    //                 ->values();
-
-    //             $entry->reviewer_project_ids = $reviewerAssignment;
-    //             $reviewerCount = $reviewerAssignment->count();
-    //             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->count();
-    //             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->count();
-    //             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->where('status', 'need_support')->count();
-    //             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->count();
-    //         }
-
-    //         if (in_array('11', $positions)) {
-    //             $statisticanAssignment = ProjectAssignDetails::with(['projectData'])->where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter()
-    //                 ->unique()
-    //                 ->values();
-
-    //             $entry->statistican_project_ids = $statisticanAssignment;
-    //             $statisticanCount = $statisticanAssignment->count();
-    //             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereHas('employee_rejected', function ($query) {
-    //                     $query->where('status', '!=', 'rejected');
-    //                 })
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->count();
-    //             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['on_going', 'to_do'])->count();
-    //             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->whereIn('status', ['correction', 'plag_correction'])->count();
-    //         }
-
-    //         if (in_array('10', $positions)) {
-    //             $journalCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
-    //             $journalPendingCount = 0;
-    //             $journalOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'on_going')->count();
-    //             $journalCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction_1'])->count();
-    //         }
-
-    //         $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-    //             ->where('assign_user', $emp_id)
-    //             // ->whereIn('status', ['to_do', 'on_going'])
-    //             ->whereIn('project_id', $writerDataId)
-    //             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                 $query->where('process_status', '!=', 'completed')
-    //                     ->where('is_deleted', 0)
-    //                     ->whereDate('entry_date', '>=', $fromDate)
-    //                     ->whereDate('entry_date', '<=', $toDate);
-    //             })
-    //             ->whereHas('employee_rejected', function ($query) {
-    //                 $query->where('status', '!=', 'rejected');
-    //             })
-    //             ->orderBy('id', 'desc')
-    //             ->get()
-    //             ->unique('project_id')
-    //             ->values();
-    //         $positionWiseCompletion = [];
-
-    //         $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-
-    //         $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-    //             return in_array($key, $positions);
-    //         }, ARRAY_FILTER_USE_KEY);
-
-    //         foreach ($projectlist as $project) {
-    //             $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-    //             $positions = isset($empposition) ? explode(',', $empposition) : [];
-
-    //             $statusType = $project->type;
-
-    //             $statusDateTime = new \DateTime($project->projectDuration);
-    //             $completedDateTime = new \DateTime($project->updated_at);
-    //             $interval = $statusDateTime->diff($completedDateTime);
-
-    //             $daysDifference = $interval->days + 1;
-
-    //             foreach ($positions as $position) {
-    //                 $position = trim($position);
-
-    //                 // Ensure only 'reviewer', 'writer', or 'statistican' is counted when applicable
-    //                 if (! isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-    //                     continue;
-    //                 }
-
-    //                 if (! isset($positionWiseCompletion[$position])) {
-    //                     $positionWiseCompletion[$position] = [
-    //                         'completed_in_4_days' => 0,
-    //                         'completed_in_5_to_8_days' => 0,
-    //                         'completed_in_more_than_8_days' => 0,
-    //                     ];
-    //                 }
-    //                 if ($daysDifference < 4) {
-    //                     $positionWiseCompletion[$position]['completed_in_4_days']++;
-    //                 } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                     $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-    //                 } else {
-    //                     $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-    //                 }
-    //             }
-    //             // }
-    //         }
-
-    //         foreach ($filteredPositions as $position => $type) {
-    //             if (! isset($positionWiseCompletion[$position])) {
-    //                 $positionWiseCompletion[$position] = [
-    //                     'completed_in_4_days' => 0,
-    //                     'completed_in_5_to_8_days' => 0,
-    //                     'completed_in_more_than_8_days' => 0,
-    //                 ];
-    //             }
-    //         }
-
-    //         // Add the counts to the person's data for response
-    //         $entry->writer_count = $writerCount;
-    //         $entry->reviewer_count = $reviewerCount;
-    //         $entry->journal_count = $journalCount;
-    //         $entry->statistican_count = $statisticanCount;
-
-    //         $entry->writerPendingCount = $writerPendingCount;
-    //         $entry->reviewerPendingCount = $reviewerPendingCount;
-    //         $entry->journalPendingCount = $journalPendingCount;
-    //         $entry->statisticanPendingCount = $statisticanPendingCount;
-    //         $entry->statisticanOngoingCount = $statisticanOngoingCount;
-
-    //         $entry->writerOngoingCount = $writerOngoingCount;
-    //         $entry->reviewerOngoingCount = $reviewerOngoingCount;
-    //         $entry->writerNeedCount = $writerNeedCount;
-    //         $entry->reviewerNeedCount = $reviewerNeedCount;
-
-    //         $entry->writerCorrectionCount = $writerCorrectionCount;
-    //         $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-    //         $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //         $entry->positionWiseCompletion = $positionWiseCompletion;
-    //     }
-
-    //     $filteredResultsfreelancer = $totalProjectsFreelancer->filter(function ($entry) {
-    //         return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    //     })->values();
-    //     //thesis project
-    //     // $allWriterData = [];
-    //     $allWriterData = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
-    //         ->where('position', '!=', 'Admin')
-    //         ->whereIn('position', [7, 8, 11])
-    //         ->get()
-    //         ->map(function ($person) {
-    //             $person->created_by_users = $person->created_by_users;
-
-    //             return $person;
-    //         });
-
-    //     foreach ($allWriterData as $entry) {
-    //         $emp_pos = $entry->position;
-    //         $emp_id = $entry->id;
-    //         $positions = explode(',', $emp_pos);
-    //         $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-    //         $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
-    //         $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
-    //         $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-    //         // Initialize count variables for each role
-    //         $completedProjects = 0;
-    //         $projectlist = [];
-
-    //         // Fetch project list based on all positions
-    //         $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
-    //             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-
-    //                 $query->whereDate('entry_date', '>=', $fromDate)
-    //                     ->whereDate('entry_date', '<=', $toDate);
-    //             })
-    //             ->get()->pluck('project_id')->toArray();
-
-    //         // Process position-wise counts
-    //         if (in_array('7', $positions)) {
-    //             $writerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                     // ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->where('type', 'writer')
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->writer_project_ids = $writerAssignment;
-    //             $writerCount = $writerAssignment->count();
-    //             // $writerCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
-    //             $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-
-    //                 ->count();
-    //             $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['on_going', 'to_do'])->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate)
-    //                         ->where('process_status', '!=', 'completed');
-    //                 })
-    //                 ->count();
-    //             $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'need_support')->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //             $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction', 'plag_correction'])->where('type', 'writer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //         }
-
-    //         if (in_array('8', $positions)) {
-    //             $reviewerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)->where('type', 'reviewer')
-
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->reviewer_project_ids = $reviewerAssignment;
-    //             $reviewerCount = $reviewerAssignment->count();
-
-    //             $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //             $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['on_going', 'to_do'])->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //             $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'need_support')->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //             $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction', 'plag_correction'])->where('type', 'reviewer')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //         }
-
-    //         if (in_array('11', $positions)) {
-    //             $statisticanAssignment = ProjectAssignDetails::where('assign_user', $emp_id)->where('type', 'statistican')
-
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                     // ->where('process_status', '!=', 'completed');
-    //                 })
-
-    //                 ->get()
-    //                 ->pluck('projectData.id')
-    //                 ->filter();
-
-    //             $entry->statistican_project_ids = $statisticanAssignment;
-    //             $statisticanCount = $statisticanAssignment->count();
-    //             // $statisticanCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
-    //             $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-    //                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //                 ->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //             $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['on_going', 'to_do'])->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //             $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'need_support')->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-
-    //             $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction', 'plag_correction'])->where('type', 'statistican')
-    //                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                     $query->where('type_of_work', 'thesis')
-    //                         ->where('is_deleted', 0)
-    //                         ->where('process_status', '!=', 'completed')
-    //                         ->whereDate('entry_date', '>=', $fromDate)
-    //                         ->whereDate('entry_date', '<=', $toDate);
-    //                 })
-    //                 ->count();
-    //         }
-
-    //         $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-    //             ->where('assign_user', $emp_id)
-    //             // ->whereIn('status', ['to_do', 'on_going'])
-    //             ->whereIn('project_id', $writerDataId)
-    //             ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-    //             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-    //                 $query->where('type_of_work', 'thesis')
-    //                     ->where('process_status', '!=', 'completed')
-    //                     ->where('is_deleted', 0)
-    //                     ->whereDate('entry_date', '>=', $fromDate)
-    //                     ->whereDate('entry_date', '<=', $toDate);
-    //             })
-    //             ->whereHas('employee_rejected', function ($query) {
-    //                 $query->where('status', '!=', 'rejected');
-    //             })
-    //             ->orderBy('id', 'desc')
-    //             ->get()
-    //             ->unique('project_id')
-    //             ->values();
-
-    //         $positionWiseCompletion = [];
-    //         $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-
-    //         $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-    //             return in_array($key, $positions);
-    //         }, ARRAY_FILTER_USE_KEY);
-
-    //         foreach ($projectlist as $project) {
-    //             $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-    //             $positions = isset($empposition) ? explode(',', $empposition) : [];
-
-    //             $statusType = $project->type;
-
-    //             $statusDateTime = new \DateTime($project->projectDuration);
-    //             $completedDateTime = new \DateTime($project->updated_at);
-    //             $interval = $statusDateTime->diff($completedDateTime);
-
-    //             $daysDifference = $interval->days + 1;
-
-    //             foreach ($positions as $position) {
-    //                 $position = trim($position);
-
-    //                 if (! isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-    //                     continue;
-    //                 }
-
-    //                 if (! isset($positionWiseCompletion[$position])) {
-    //                     $positionWiseCompletion[$position] = [
-    //                         'completed_in_4_days' => 0,
-    //                         'completed_in_5_to_8_days' => 0,
-    //                         'completed_in_more_than_8_days' => 0,
-    //                     ];
-    //                 }
-
-    //                 if ($daysDifference < 4) {
-    //                     $positionWiseCompletion[$position]['completed_in_4_days']++;
-    //                 } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-    //                     $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-    //                 } else {
-    //                     $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-    //                 }
-    //             }
-    //             // }
-    //         }
-
-    //         foreach ($filteredPositions as $position => $type) {
-    //             if (! isset($positionWiseCompletion[$position])) {
-    //                 $positionWiseCompletion[$position] = [
-    //                     'completed_in_4_days' => 0,
-    //                     'completed_in_5_to_8_days' => 0,
-    //                     'completed_in_more_than_8_days' => 0,
-    //                 ];
-    //             }
-    //         }
-
-    //         // Add the counts to the person's data for response
-    //         $entry->writer_count = $writerCount;
-    //         $entry->reviewer_count = $reviewerCount;
-    //         // $entry->journal_count = $journalCount;
-    //         $entry->statistican_count = $statisticanCount;
-
-    //         $entry->writerPendingCount = $writerPendingCount;
-    //         $entry->reviewerPendingCount = $reviewerPendingCount;
-    //         // $entry->journalPendingCount = $journalPendingCount;
-    //         $entry->statisticanPendingCount = $statisticanPendingCount;
-    //         $entry->statisticanNeedCount = $statisticanNeedCount;
-    //         $entry->statisticanOngoingCount = $statisticanOngoingCount;
-
-    //         $entry->writerOngoingCount = $writerOngoingCount;
-    //         $entry->reviewerOngoingCount = $reviewerOngoingCount;
-    //         $entry->writerNeedCount = $writerNeedCount;
-    //         $entry->reviewerNeedCount = $reviewerNeedCount;
-
-    //         $entry->writerCorrectionCount = $writerCorrectionCount;
-    //         $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-    //         $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-
-    //         $entry->completed_in_4_days = $completedIn4Days;
-    //         $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-    //         $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    //         $entry->positionWiseCompletion = $positionWiseCompletion;
-    //     }
-
-    //     $allWriterData_thesis = $allWriterData->filter(function ($entry) {
-    //         return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    //     })->values();
-
-    //     return response()->json([
-    //         'peopleInhouse' => $filteredResultsInhouse,
-    //         'peopleExternal' => $filteredResultsfreelancer,
-    //         'peopleWriterExternal' => $allWriterData_thesis,
-    //     ]);
-    // }
 
     public function inhouseExternal(Request $request, $fromDate = null, $toDate = null)
-{
-    // Initialize dates
-    if (!$fromDate) {
-        $fromDate = date('Y-m-d');
-    }
-    if (!$toDate) {
-        $toDate = date('Y-m-d');
-    }
-    
-    // Helper function to get unique project IDs
-    $getUniqueProjectIds = function($query) {
-        return $query->get()
-            ->pluck('projectData.id')
-            ->filter()
-            ->unique()
-            ->values();
-    };
-    
-    // People wise response data
-    $totalProjects = People::select('id', 'employee_name', 'position')->with(['createdByUser'])
-        ->where('position', '!=', 'Admin')
-        ->whereIn('position', [7, 8, 10, 11])
-        ->where('status', '1')
-        ->get();
+    {
+        // Initialize dates
+        if (!$fromDate) {
+            $fromDate = date('Y-m-d');
+        }
+        if (!$toDate) {
+            $toDate = date('Y-m-d');
+        }
 
-    // Initialize common queries for EntryProcessModel based on the position
-    $entryProcessData = EntryProcessModel::with(['writerData', 'reviewerData', 'statisticanData'])
-        ->select('id', 'writer', 'reviewer', 'journal', 'statistican')
-        ->where(function ($query) use ($totalProjects) {
-            $employeeIds = $totalProjects->pluck('id')->toArray();
-            
-            $query->whereHas('writerData', function ($q) use ($employeeIds) {
-                $q->where('status', '!=', 'completed')
-                    ->whereIn('assign_user', $employeeIds);
-            })->orWhereHas('reviewerData', function ($q) use ($employeeIds) {
-                $q->where('status', '!=', 'completed')
-                    ->whereIn('assign_user', $employeeIds);
-            })->orWhereHas('statisticanData', function ($q) use ($employeeIds) {
-                $q->where('status', '!=', 'completed')
-                    ->whereIn('assign_user', $employeeIds);
+        // Helper function to get unique project IDs
+        $getUniqueProjectIds = function ($query) {
+            return $query->get()
+                ->pluck('projectData.id')
+                ->filter()
+                ->unique()
+                ->values();
+        };
+
+        // People wise response data
+        $totalProjects = People::select('id', 'employee_name', 'position')->with(['createdByUser'])
+            ->where('position', '!=', 'Admin')
+            ->whereIn('position', [7, 8, 10, 11])
+            ->where('status', '1')
+            ->get();
+
+        // Initialize common queries for EntryProcessModel based on the position
+        $entryProcessData = EntryProcessModel::with(['writerData', 'reviewerData', 'statisticanData'])
+            ->select('id', 'writer', 'reviewer', 'journal', 'statistican')
+            ->where(function ($query) use ($totalProjects) {
+                $employeeIds = $totalProjects->pluck('id')->toArray();
+
+                $query->whereHas('writerData', function ($q) use ($employeeIds) {
+                    $q->where('status', '!=', 'completed')
+                        ->whereIn('assign_user', $employeeIds);
+                })->orWhereHas('reviewerData', function ($q) use ($employeeIds) {
+                    $q->where('status', '!=', 'completed')
+                        ->whereIn('assign_user', $employeeIds);
+                })->orWhereHas('statisticanData', function ($q) use ($employeeIds) {
+                    $q->where('status', '!=', 'completed')
+                        ->whereIn('assign_user', $employeeIds);
+                });
+            })
+            ->whereDate('entry_date', '>=', $fromDate)
+            ->whereDate('entry_date', '<=', $toDate)
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
+            ->where('is_deleted', 0)
+            ->get();
+
+        $projectLogsData = ProjectLogs::select('id', 'project_id', 'employee_id', 'status', 'status_date', 'status_type')
+            ->whereIn('employee_id', $totalProjects->pluck('id'))
+            ->whereHas('entryProcess', function ($query) use ($fromDate, $toDate) {
+                $query->where('is_deleted', 0)
+                    ->whereDate('entry_date', '>=', $fromDate)
+                    ->whereDate('entry_date', '<=', $toDate)
+                    ->where('process_status', '!=', 'completed');
+            })
+            ->where('status', 'to_do')
+            ->get();
+
+        // Loop through each person and count based on their position
+        foreach ($totalProjects as $entry) {
+            $emp_pos = $entry->position;
+            $emp_id = $entry->id;
+
+            $completedIn4Days = $completedIn5To8Days = $completedInMoreThan8Days = 0;
+
+            // Filter EntryProcessData by role
+            $filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
+                switch ($emp_pos) {
+                    case 7:
+                        if (!$item->writerData) {
+                            return false;
+                        }
+
+                        if ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                            return $item->writerData->contains('assign_user', $emp_id);
+                        }
+
+                        return $item->writerData->assign_user == $emp_id;
+
+                    case 8:
+                        if (!$item->reviewerData) {
+                            return false;
+                        }
+
+                        if ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                            return $item->reviewerData->contains('assign_user', $emp_id);
+                        }
+
+                        return $item->reviewerData->assign_user == $emp_id;
+
+                    case 10:
+                        if (!$item->journalData) {
+                            return false;
+                        }
+
+                        if ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection) {
+                            return $item->journalData->contains('assign_user', $emp_id);
+                        }
+
+                        return $item->journalData->assign_user == $emp_id;
+
+                    case 11:
+                        if (!$item->statisticanData) {
+                            return false;
+                        }
+
+                        if ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection) {
+                            return $item->statisticanData->contains('assign_user', $emp_id);
+                        }
+
+                        return $item->statisticanData->assign_user == $emp_id;
+
+                    default:
+                        return false;
+                }
             });
-        })
-        ->whereDate('entry_date', '>=', $fromDate)
-        ->whereDate('entry_date', '<=', $toDate)
-        ->where('process_status', '!=', 'completed')
-        ->where('is_deleted', 0)
-        ->get();
 
-    $projectLogsData = ProjectLogs::select('id', 'project_id', 'employee_id', 'status', 'status_date', 'status_type')
-        ->whereIn('employee_id', $totalProjects->pluck('id'))
-        ->whereHas('entryProcess', function ($query) use ($fromDate, $toDate) {
-            $query->where('is_deleted', 0)
-                ->whereDate('entry_date', '>=', $fromDate)
-                ->whereDate('entry_date', '<=', $toDate)
-                ->where('process_status', '!=', 'completed');
-        })
-        ->where('status', 'to_do')
-        ->get();
-
-    // Loop through each person and count based on their position
-    foreach ($totalProjects as $entry) {
-        $emp_pos = $entry->position;
-        $emp_id = $entry->id;
-
-        $completedIn4Days = $completedIn5To8Days = $completedInMoreThan8Days = 0;
-
-        // Filter EntryProcessData by role
-        // Filter EntryProcessData by role
-$filteredEntries = $entryProcessData->filter(function ($item) use ($emp_id, $emp_pos) {
-    switch ($emp_pos) {
-        case 7:
-            // Check if writerData exists and is not empty, then check assign_user
-            return $item->writerData && 
-                   ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->writerData->contains('assign_user', $emp_id) : 
-                        $item->writerData->assign_user == $emp_id);
-        case 8:
-            return $item->reviewerData && 
-                   ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->reviewerData->contains('assign_user', $emp_id) : 
-                        $item->reviewerData->assign_user == $emp_id);
-        case 10:
-            return $item->journalData && 
-                   ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->journalData->contains('assign_user', $emp_id) : 
-                        $item->journalData->assign_user == $emp_id);
-        case 11:
-            return $item->statisticanData && 
-                   ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection ? 
-                        $item->statisticanData->contains('assign_user', $emp_id) : 
-                        $item->statisticanData->assign_user == $emp_id);
-        default:
-            return false;
-    }
-});
-
-        // Calculate counts
-        // $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->writerData && $item->writerData->assign_user == $emp_id;
-        // })->count();
-        
-        // $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->reviewerData && $item->reviewerData->assign_user == $emp_id;
-        // })->count();
-        
-        // $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->journalData && $item->journalData->assign_user == $emp_id;
-        // })->count();
-        
-        // $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
-        //     return $item->statisticanData && $item->statisticanData->assign_user == $emp_id;
-        // })->count();
-
-       $entry->writer_count = $filteredEntries->sum(function ($item) use ($emp_id) {
-    return $item->writerData->where('assign_user', $emp_id)->count();
-});
-
-$entry->reviewer_count = $filteredEntries->sum(function ($item) use ($emp_id) {
-    return $item->reviewerData->where('assign_user', $emp_id)->count();
-});
-
-$entry->journal_count = $filteredEntries->sum(function ($item) use ($emp_id) {
-    return $item->journalData->where('assign_user', $emp_id)->count();
-});
-
-$entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id) {
-    return $item->statisticanData->where('assign_user', $emp_id)->count();
-});
-
-        // Pending counts (same as above for now)
-        $entry->writerPendingCount = $entry->writer_count;
-        $entry->reviewerPendingCount = $entry->reviewer_count;
-        $entry->journalPendingCount = $entry->journal_count;
-        $entry->statisticanPendingCount = $entry->statistican_count;
-
-        // Get project list for this employee
-        $projectlist = $projectLogsData->where('employee_id', $emp_id);
-
-        // Loop through the projects to calculate the date differences
-        foreach ($projectlist as $project) {
-            $statusDate = Carbon::parse($project->status_date);
-            $daysDifference = $statusDate->diffInDays($statusDate);
-
-            if ($daysDifference < 4) {
-                $completedIn4Days++;
-            } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                $completedIn5To8Days++;
-            } elseif ($daysDifference > 8) {
-                $completedInMoreThan8Days++;
-            }
-        }
-
-        // Add completed days counts to the entry
-        $entry->completed_in_4_days = $completedIn4Days;
-        $entry->completed_in_5_to_8_days = $completedIn5To8Days;
-        $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
-    }
-
-    // Inhouse projects
-    $totalProjectsInhouse = People::select('id', 'position', 'employee_name', 'employee_type')
-        ->where('position', '!=', 'Admin')
-        ->where('employee_type', '!=', 'freelancers')
-        ->whereIn('position', [7, 8, 11])
-        ->where('status', '1')
-        ->get()
-        ->map(function ($person) {
-            $person->created_by_users = $person->created_by_users;
-            return $person;
-        });
-
-    foreach ($totalProjectsInhouse as $entry) {
-        $emp_pos = $entry->position;
-        $emp_id = $entry->id;
-        $positions = explode(',', $emp_pos);
-
-        // Initialize count variables
-        $writerCount = $reviewerCount = $statisticanCount = 0;
-        $writerPendingCount = $reviewerPendingCount = $statisticanPendingCount = 0;
-        $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = $statisticanNeedCount = 0;
-        $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-        // Get unique project IDs for this employee
-        $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
-            ->get()
-            ->pluck('project_id')
-            ->unique()
-            ->values()
-            ->toArray();
-            
-        // Process position-wise counts
-        if (in_array('7', $positions)) {
-            $writerAssignment = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
-                ->where('assign_user', $emp_id)
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
-
-            $entry->writer_project_ids = $writerAssignment;
-            $writerCount = $writerAssignment->count();
-            
-            $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereHas('employee_rejected', function ($query) {
-                    $query->where('status', '!=', 'rejected');
-                })
-                ->where('type', 'writer')
-                ->count();
-                
-            $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->where('type', 'writer')
-                ->count();
-                
-            $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->where('status', 'need_support')
-                ->where('type', 'writer')
-                ->count();
-                
-            $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->where('type', 'writer')
-                ->count();
-        }
-
-        if (in_array('8', $positions)) {
-            $reviewerAssignments = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
-                ->where('assign_user', $emp_id)
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
-
-            $entry->reviewer_project_ids = $reviewerAssignments;
-            $reviewerCount = $reviewerAssignments->count();
-            
-            $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereHas('employee_rejected', function ($query) {
-                    $query->where('status', '!=', 'rejected');
-                })
-                ->where('type', 'reviewer')
-                ->count();
-                
-            $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->where('type', 'reviewer')
-                ->count();
-                
-            $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->where('status', 'need_support')
-                ->where('type', 'reviewer')
-                ->count();
-                
-            $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->where('type', 'reviewer')
-                ->count();
-        }
-
-        if (in_array('11', $positions)) {
-            $statisticanAssignment = ProjectAssignDetails::with(['projectData'])
-                ->where('assign_user', $emp_id)
-                ->where('type', 'statistican')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
-                
-            $entry->statistican_project_ids = $statisticanAssignment;
-            $statisticanCount = $statisticanAssignment->count();
-            
-            $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereHas('employee_rejected', function ($query) {
-                    $query->where('status', '!=', 'rejected');
-                })
-                ->where('type', 'statistican')
-                ->count();
-                
-            $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->where('type', 'statistican')
-                ->count();
-                
-            $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->where('type', 'statistican')
-                ->count();
-                
-            $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->where('status', 'need_support')
-                ->where('type', 'statistican')
-                ->count();
-        }
-
-        // Get unique project list
-        $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-            ->where('assign_user', $emp_id)
-            ->whereIn('project_id', $writerDataId)
-            ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('process_status', '!=', 'completed')
-                    ->where('is_deleted', 0)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })
-            ->where(function ($query) {
-                $query->whereDoesntHave('employee_rejected')
-                    ->orWhereHas('employee_rejected', function ($subQuery) {
-                        $subQuery->where('status', '!=', 'rejected');
-                    });
-            })
-            ->orderBy('id', 'desc')
-            ->get()
-            ->unique('project_id')
-            ->values();
-
-        $positionWiseCompletion = [];
-        $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-        $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-            return in_array($key, $positions);
-        }, ARRAY_FILTER_USE_KEY);
-
-        foreach ($projectlist as $project) {
-            $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-            $projPositions = isset($empposition) ? explode(',', $empposition) : [];
-            $statusType = $project->type;
-
-            $statusDateTime = new \DateTime($project->projectDuration);
-            $completedDateTime = new \DateTime($project->updated_at);
-            $interval = $statusDateTime->diff($completedDateTime);
-            $daysDifference = $interval->days + 1;
-
-            foreach ($projPositions as $position) {
-                $position = trim($position);
-
-                if (!isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-                    continue;
+            $entry->writer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+                if (!$item->writerData) {
+                    return false;
                 }
 
+                if ($item->writerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                    return $item->writerData->contains('assign_user', $emp_id);
+                }
+
+                return $item->writerData->assign_user == $emp_id;
+            })->count();
+
+            $entry->reviewer_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+                if (!$item->reviewerData) {
+                    return false;
+                }
+
+                if ($item->reviewerData instanceof \Illuminate\Database\Eloquent\Collection) {
+                    return $item->reviewerData->contains('assign_user', $emp_id);
+                }
+
+                return $item->reviewerData->assign_user == $emp_id;
+            })->count();
+
+            $entry->journal_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+                if (!$item->journalData) {
+                    return false;
+                }
+
+                if ($item->journalData instanceof \Illuminate\Database\Eloquent\Collection) {
+                    return $item->journalData->contains('assign_user', $emp_id);
+                }
+
+                return $item->journalData->assign_user == $emp_id;
+            })->count();
+
+            $entry->statistican_count = $filteredEntries->filter(function ($item) use ($emp_id) {
+                if (!$item->statisticanData) {
+                    return false;
+                }
+
+                if ($item->statisticanData instanceof \Illuminate\Database\Eloquent\Collection) {
+                    return $item->statisticanData->contains('assign_user', $emp_id);
+                }
+
+                return $item->statisticanData->assign_user == $emp_id;
+            })->count();
+
+            // Pending counts (same as above for now)
+            $entry->writerPendingCount = $entry->writer_count;
+            $entry->reviewerPendingCount = $entry->reviewer_count;
+            $entry->journalPendingCount = $entry->journal_count;
+            $entry->statisticanPendingCount = $entry->statistican_count;
+
+            // Get project list for this employee
+            $projectlist = $projectLogsData->where('employee_id', $emp_id);
+
+            // Loop through the projects to calculate the date differences
+            foreach ($projectlist as $project) {
+                $statusDate = Carbon::parse($project->status_date);
+
+                // FIX: previously diffed $statusDate against itself, which is
+                // always 0 and made every project fall into the "<4 days"
+                // bucket. Now diffs against the log's updated_at timestamp.
+                // >>> Replace `updated_at` below with the correct "completed on"
+                // >>> column for ProjectLogs if one exists (e.g. completed_at).
+                $completedDate = Carbon::parse($project->updated_at);
+                $daysDifference = $statusDate->diffInDays($completedDate);
+
+                switch ($this->bucketCompletionDays($daysDifference)) {
+                    case '4':
+                        $completedIn4Days++;
+                        break;
+                    case '5to8':
+                        $completedIn5To8Days++;
+                        break;
+                    case 'more8':
+                        $completedInMoreThan8Days++;
+                        break;
+                }
+            }
+
+            // Add completed days counts to the entry
+            $entry->completed_in_4_days = $completedIn4Days;
+            $entry->completed_in_5_to_8_days = $completedIn5To8Days;
+            $entry->completed_in_more_than_8_days = $completedInMoreThan8Days;
+        }
+
+        // Inhouse projects
+        $totalProjectsInhouse = People::select('id', 'position', 'employee_name', 'employee_type')
+            ->where('position', '!=', 'Admin')
+            ->where('employee_type', '!=', 'freelancers')
+            ->whereIn('position', [7, 8, 11])
+            ->where('status', '1')
+            ->get()
+            ->map(function ($person) {
+                $person->created_by_users = $person->created_by_users;
+                return $person;
+            });
+
+        foreach ($totalProjectsInhouse as $entry) {
+            $emp_pos = $entry->position;
+            $emp_id = $entry->id;
+            $positions = explode(',', $emp_pos);
+
+            // Initialize count variables
+            $writerCount = $reviewerCount = $statisticanCount = 0;
+            $writerPendingCount = $reviewerPendingCount = $statisticanPendingCount = 0;
+            $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = $statisticanNeedCount = 0;
+            $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
+
+            // Get unique project IDs for this employee
+            $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
+                ->get()
+                ->pluck('project_id')
+                ->unique()
+                ->values()
+                ->toArray();
+
+            // Process position-wise counts
+            if (in_array('7', $positions)) {
+                $writerAssignment = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
+                    ->where('assign_user', $emp_id)
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->where('is_deleted', 0);
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->writer_project_ids = $writerAssignment;
+                $writerCount = $writerAssignment->count();
+
+                $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereHas('employee_rejected', function ($query) {
+                        $query->where('status', '!=', 'rejected');
+                    })
+                    ->where('type', 'writer')
+                    ->count();
+
+                $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->where('type', 'writer')
+                    ->count();
+
+                $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->where('status', 'need_support')
+                    ->where('type', 'writer')
+                    ->count();
+
+                $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->where('type', 'writer')
+                    ->count();
+            }
+
+            if (in_array('8', $positions)) {
+                $reviewerAssignments = ProjectAssignDetails::with(['projectData', 'employee_rejected'])
+                    ->where('assign_user', $emp_id)
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->where('is_deleted', 0);
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->reviewer_project_ids = $reviewerAssignments;
+                $reviewerCount = $reviewerAssignments->count();
+
+                $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereHas('employee_rejected', function ($query) {
+                        $query->where('status', '!=', 'rejected');
+                    })
+                    ->where('type', 'reviewer')
+                    ->count();
+
+                $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->where('type', 'reviewer')
+                    ->count();
+
+                $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->where('status', 'need_support')
+                    ->where('type', 'reviewer')
+                    ->count();
+
+                $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->where('type', 'reviewer')
+                    ->count();
+            }
+
+            if (in_array('11', $positions)) {
+                $statisticanAssignment = ProjectAssignDetails::with(['projectData'])
+                    ->where('assign_user', $emp_id)
+                    ->where('type', 'statistican')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'withdrawal');
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->statistican_project_ids = $statisticanAssignment;
+                $statisticanCount = $statisticanAssignment->count();
+
+                $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereHas('employee_rejected', function ($query) {
+                        $query->where('status', '!=', 'rejected');
+                    })
+                    ->where('type', 'statistican')
+                    ->count();
+
+                $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->where('type', 'statistican')
+                    ->count();
+
+                $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->where('type', 'statistican')
+                    ->count();
+
+                $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->where('status', 'need_support')
+                    ->where('type', 'statistican')
+                    ->count();
+            }
+
+            // Get unique project list
+            $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
+                ->where('assign_user', $emp_id)
+                ->whereIn('project_id', $writerDataId)
+                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                    $query->whereNotIn('process_status', ['completed', 'withdrawal'])
+                        ->where('is_deleted', 0)
+                        ->whereDate('entry_date', '>=', $fromDate)
+                        ->whereDate('entry_date', '<=', $toDate);
+                })
+                ->where(function ($query) {
+                    $query->whereDoesntHave('employee_rejected')
+                        ->orWhereHas('employee_rejected', function ($subQuery) {
+                            $subQuery->where('status', '!=', 'rejected');
+                        });
+                })
+                ->orderBy('id', 'desc')
+                ->get()
+                // FIX: was ->unique('project_id') only, which collapses a
+                // pending writer row and a pending reviewer row on the SAME
+                // project down to just one of them (whichever sorts first),
+                // silently dropping the other role's row before it can be
+                // bucketed by day below. Dedupe by project_id + type together
+                // instead, since a single project can legitimately have this
+                // employee pending on it in more than one role at once.
+                ->unique(function ($item) {
+                    return $item->project_id . '_' . $item->type;
+                })
+                ->values();
+
+            $positionWiseCompletion = [];
+            $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
+            $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
+                return in_array($key, $positions);
+            }, ARRAY_FILTER_USE_KEY);
+
+            foreach ($projectlist as $project) {
+                $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
+                $projPositions = isset($empposition) ? explode(',', $empposition) : [];
+                $statusType = $project->type;
+
+                $statusDateTime = new \DateTime($project->project_duration);
+                $completedDateTime = new \DateTime($project->updated_at);
+                $interval = $statusDateTime->diff($completedDateTime);
+                $daysDifference = $interval->days + 1;
+
+                foreach ($projPositions as $position) {
+                    $position = trim($position);
+
+                    if (!isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
+                        continue;
+                    }
+
+                    if (!isset($positionWiseCompletion[$position])) {
+                        $positionWiseCompletion[$position] = [
+                            'completed_in_4_days' => 0,
+                            'completed_in_5_to_8_days' => 0,
+                            'completed_in_more_than_8_days' => 0,
+                        ];
+                    }
+
+                    switch ($this->bucketCompletionDays($daysDifference)) {
+                        case '4':
+                            $positionWiseCompletion[$position]['completed_in_4_days']++;
+                            break;
+                        case '5to8':
+                            $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
+                            break;
+                        case 'more8':
+                            $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                            break;
+                    }
+                }
+            }
+
+            // Ensure all required positions exist with default values
+            foreach ($filteredPositions as $position => $type) {
                 if (!isset($positionWiseCompletion[$position])) {
                     $positionWiseCompletion[$position] = [
                         'completed_in_4_days' => 0,
@@ -8228,308 +4229,330 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                         'completed_in_more_than_8_days' => 0,
                     ];
                 }
+            }
 
-                if ($daysDifference < 4) {
-                    $positionWiseCompletion[$position]['completed_in_4_days']++;
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-                } else {
-                    $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+            // Add counts to response
+            $entry->writer_count = $writerCount;
+            $entry->reviewer_count = $reviewerCount;
+            $entry->statistican_count = $statisticanCount;
+            $entry->writerPendingCount = $writerPendingCount;
+            $entry->reviewerPendingCount = $reviewerPendingCount;
+            $entry->statisticanPendingCount = $statisticanPendingCount;
+            $entry->statisticanOngoingCount = $statisticanOngoingCount;
+            $entry->writerOngoingCount = $writerOngoingCount;
+            $entry->reviewerOngoingCount = $reviewerOngoingCount;
+            $entry->writerNeedCount = $writerNeedCount;
+            $entry->reviewerNeedCount = $reviewerNeedCount;
+            $entry->statisticanNeedCount = $statisticanNeedCount;
+            $entry->writerCorrectionCount = $writerCorrectionCount;
+            $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
+            $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
+            $entry->positionWiseCompletion = $positionWiseCompletion;
+        }
+
+        $filteredResultsInhouse = $totalProjectsInhouse->filter(function ($entry) {
+            return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
+        })->values();
+
+        // Freelancer section (similar fixes applied)
+        $totalProjectsFreelancer = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
+            ->where('position', '!=', 'Admin')
+            ->where('employee_type', '=', 'freelancers')
+            ->whereIn('position', [7, 8, 10, 11])
+            ->where('status', '1')
+            ->get()
+            ->map(function ($person) {
+                $person->created_by_users = $person->created_by_users;
+                return $person;
+            });
+
+        foreach ($totalProjectsFreelancer as $entry) {
+            $emp_pos = $entry->position;
+            $emp_id = $entry->id;
+            $positions = explode(',', $emp_pos);
+
+            $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
+            $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
+            $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
+            $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
+
+            $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
+                ->get()
+                ->pluck('project_id')
+                ->unique()
+                ->values()
+                ->toArray();
+
+            if (in_array('7', $positions)) {
+                $writerAssignment = ProjectAssignDetails::with('projectData')
+                    ->where('assign_user', $emp_id)
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->where('is_deleted', 0);
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->writer_project_ids = $writerAssignment;
+                $writerCount = $writerAssignment->count();
+
+                $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('is_deleted', 0);
+                    })
+                    ->whereHas('employee_rejected', function ($query) {
+                        $query->where('status', '!=', 'rejected');
+                    })
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->count();
+
+                $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('is_deleted', 0);
+                    })
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->count();
+
+                $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('is_deleted', 0);
+                    })
+                    ->where('status', 'need_support')
+                    ->count();
+
+                $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('is_deleted', 0);
+                    })
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->count();
+            }
+
+            if (in_array('8', $positions)) {
+                $reviewerAssignment = ProjectAssignDetails::with(['projectData'])
+                    ->where('assign_user', $emp_id)
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->where('is_deleted', 0);
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->reviewer_project_ids = $reviewerAssignment;
+                $reviewerCount = $reviewerAssignment->count();
+
+                $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereHas('employee_rejected', function ($query) {
+                        $query->where('status', '!=', 'rejected');
+                    })
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->count();
+
+                $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->count();
+
+                $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->where('status', 'need_support')
+                    ->count();
+
+                $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->count();
+            }
+
+            if (in_array('11', $positions)) {
+                $statisticanAssignment = ProjectAssignDetails::with(['projectData'])
+                    ->where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->where('is_deleted', 0);
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->statistican_project_ids = $statisticanAssignment;
+                $statisticanCount = $statisticanAssignment->count();
+
+                $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereHas('employee_rejected', function ($query) {
+                        $query->where('status', '!=', 'rejected');
+                    })
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->count();
+
+                $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->count();
+
+                $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->count();
+            }
+
+            if (in_array('10', $positions)) {
+                $journalCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
+                $journalPendingCount = 0;
+                $journalOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'on_going')->count();
+                $journalCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction_1'])->count();
+            }
+
+            $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
+                ->where('assign_user', $emp_id)
+                ->whereIn('project_id', $writerDataId)
+                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                    $query->whereNotIn('process_status', ['completed', 'withdrawal'])
+                        ->where('is_deleted', 0)
+                        ->whereDate('entry_date', '>=', $fromDate)
+                        ->whereDate('entry_date', '<=', $toDate);
+                })
+                ->whereHas('employee_rejected', function ($query) {
+                    $query->where('status', '!=', 'rejected');
+                })
+                ->orderBy('id', 'desc')
+                ->get()
+                // FIX: was ->unique('project_id') only, which collapses a
+                // pending writer row and a pending reviewer row on the SAME
+                // project down to just one of them (whichever sorts first),
+                // silently dropping the other role's row before it can be
+                // bucketed by day below. Dedupe by project_id + type together
+                // instead, since a single project can legitimately have this
+                // employee pending on it in more than one role at once.
+                ->unique(function ($item) {
+                    return $item->project_id . '_' . $item->type;
+                })
+                ->values();
+
+            $positionWiseCompletion = [];
+            $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
+            $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
+                return in_array($key, $positions);
+            }, ARRAY_FILTER_USE_KEY);
+
+            foreach ($projectlist as $project) {
+                $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
+                $projPositions = isset($empposition) ? explode(',', $empposition) : [];
+                $statusType = $project->type;
+
+                $statusDateTime = new \DateTime($project->project_duration);
+                $completedDateTime = new \DateTime($project->updated_at);
+                $interval = $statusDateTime->diff($completedDateTime);
+                $daysDifference = $interval->days + 1;
+
+                foreach ($projPositions as $position) {
+                    $position = trim($position);
+
+                    if (!isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
+                        continue;
+                    }
+
+                    if (!isset($positionWiseCompletion[$position])) {
+                        $positionWiseCompletion[$position] = [
+                            'completed_in_4_days' => 0,
+                            'completed_in_5_to_8_days' => 0,
+                            'completed_in_more_than_8_days' => 0,
+                        ];
+                    }
+
+                    switch ($this->bucketCompletionDays($daysDifference)) {
+                        case '4':
+                            $positionWiseCompletion[$position]['completed_in_4_days']++;
+                            break;
+                        case '5to8':
+                            $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
+                            break;
+                        case 'more8':
+                            $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                            break;
+                    }
                 }
             }
-        }
 
-        // Ensure all required positions exist with default values
-        foreach ($filteredPositions as $position => $type) {
-            if (!isset($positionWiseCompletion[$position])) {
-                $positionWiseCompletion[$position] = [
-                    'completed_in_4_days' => 0,
-                    'completed_in_5_to_8_days' => 0,
-                    'completed_in_more_than_8_days' => 0,
-                ];
-            }
-        }
-
-        // Add counts to response
-        $entry->writer_count = $writerCount;
-        $entry->reviewer_count = $reviewerCount;
-        $entry->statistican_count = $statisticanCount;
-        $entry->writerPendingCount = $writerPendingCount;
-        $entry->reviewerPendingCount = $reviewerPendingCount;
-        $entry->statisticanPendingCount = $statisticanPendingCount;
-        $entry->statisticanOngoingCount = $statisticanOngoingCount;
-        $entry->writerOngoingCount = $writerOngoingCount;
-        $entry->reviewerOngoingCount = $reviewerOngoingCount;
-        $entry->writerNeedCount = $writerNeedCount;
-        $entry->reviewerNeedCount = $reviewerNeedCount;
-        $entry->statisticanNeedCount = $statisticanNeedCount;
-        $entry->writerCorrectionCount = $writerCorrectionCount;
-        $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-        $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-        $entry->positionWiseCompletion = $positionWiseCompletion;
-    }
-
-    $filteredResultsInhouse = $totalProjectsInhouse->filter(function ($entry) {
-        return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    })->values();
-
-    // Freelancer section (similar fixes applied)
-    $totalProjectsFreelancer = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
-        ->where('position', '!=', 'Admin')
-        ->where('employee_type', '=', 'freelancers')
-        ->whereIn('position', [7, 8, 10, 11])
-        ->where('status', '1')
-        ->get()
-        ->map(function ($person) {
-            $person->created_by_users = $person->created_by_users;
-            return $person;
-        });
-
-    foreach ($totalProjectsFreelancer as $entry) {
-        $emp_pos = $entry->position;
-        $emp_id = $entry->id;
-        $positions = explode(',', $emp_pos);
-
-        $writerCount = $reviewerCount = $journalCount = $statisticanCount = 0;
-        $writerPendingCount = $reviewerPendingCount = $journalPendingCount = $statisticanPendingCount = 0;
-        $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
-        $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-        $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
-            ->get()
-            ->pluck('project_id')
-            ->unique()
-            ->values()
-            ->toArray();
-
-        if (in_array('7', $positions)) {
-            $writerAssignment = ProjectAssignDetails::with('projectData')
-                ->where('assign_user', $emp_id)
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
-
-            $entry->writer_project_ids = $writerAssignment;
-            $writerCount = $writerAssignment->count();
-            
-            $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereHas('employee_rejected', function ($query) {
-                    $query->where('status', '!=', 'rejected');
-                })
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->count();
-                
-            $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->count();
-                
-            $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->where('status', 'need_support')
-                ->count();
-                
-            $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->count();
-        }
-
-        if (in_array('8', $positions)) {
-            $reviewerAssignment = ProjectAssignDetails::with(['projectData'])
-                ->where('assign_user', $emp_id)
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
-
-            $entry->reviewer_project_ids = $reviewerAssignment;
-            $reviewerCount = $reviewerAssignment->count();
-            
-            $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereHas('employee_rejected', function ($query) {
-                    $query->where('status', '!=', 'rejected');
-                })
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->count();
-                
-            $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->count();
-                
-            $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->where('status', 'need_support')
-                ->count();
-                
-            $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->count();
-        }
-
-        if (in_array('11', $positions)) {
-            $statisticanAssignment = ProjectAssignDetails::with(['projectData'])
-                ->where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
-
-            $entry->statistican_project_ids = $statisticanAssignment;
-            $statisticanCount = $statisticanAssignment->count();
-            
-            $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereHas('employee_rejected', function ($query) {
-                    $query->where('status', '!=', 'rejected');
-                })
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->count();
-                
-            $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->count();
-                
-            $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->count();
-        }
-
-        if (in_array('10', $positions)) {
-            $journalCount = ProjectAssignDetails::where('assign_user', $emp_id)->count();
-            $journalPendingCount = 0;
-            $journalOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)->where('status', 'on_going')->count();
-            $journalCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)->whereIn('status', ['correction_1'])->count();
-        }
-
-        $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-            ->where('assign_user', $emp_id)
-            ->whereIn('project_id', $writerDataId)
-            ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('process_status', '!=', 'completed')
-                    ->where('is_deleted', 0)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })
-            ->whereHas('employee_rejected', function ($query) {
-                $query->where('status', '!=', 'rejected');
-            })
-            ->orderBy('id', 'desc')
-            ->get()
-            ->unique('project_id')
-            ->values();
-            
-        $positionWiseCompletion = [];
-        $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-        $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-            return in_array($key, $positions);
-        }, ARRAY_FILTER_USE_KEY);
-
-        foreach ($projectlist as $project) {
-            $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-            $projPositions = isset($empposition) ? explode(',', $empposition) : [];
-            $statusType = $project->type;
-
-            $statusDateTime = new \DateTime($project->projectDuration);
-            $completedDateTime = new \DateTime($project->updated_at);
-            $interval = $statusDateTime->diff($completedDateTime);
-            $daysDifference = $interval->days + 1;
-
-            foreach ($projPositions as $position) {
-                $position = trim($position);
-
-                if (!isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-                    continue;
-                }
-
+            foreach ($filteredPositions as $position => $type) {
                 if (!isset($positionWiseCompletion[$position])) {
                     $positionWiseCompletion[$position] = [
                         'completed_in_4_days' => 0,
@@ -8537,327 +4560,345 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                         'completed_in_more_than_8_days' => 0,
                     ];
                 }
-                
-                if ($daysDifference < 4) {
-                    $positionWiseCompletion[$position]['completed_in_4_days']++;
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-                } else {
-                    $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-                }
             }
+
+            // Add the counts to the person's data for response
+            $entry->writer_count = $writerCount;
+            $entry->reviewer_count = $reviewerCount;
+            $entry->journal_count = $journalCount;
+            $entry->statistican_count = $statisticanCount;
+            $entry->writerPendingCount = $writerPendingCount;
+            $entry->reviewerPendingCount = $reviewerPendingCount;
+            $entry->journalPendingCount = $journalPendingCount;
+            $entry->statisticanPendingCount = $statisticanPendingCount;
+            $entry->statisticanOngoingCount = $statisticanOngoingCount;
+            $entry->writerOngoingCount = $writerOngoingCount;
+            $entry->reviewerOngoingCount = $reviewerOngoingCount;
+            $entry->writerNeedCount = $writerNeedCount;
+            $entry->reviewerNeedCount = $reviewerNeedCount;
+            $entry->writerCorrectionCount = $writerCorrectionCount;
+            $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
+            $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
+            $entry->positionWiseCompletion = $positionWiseCompletion;
         }
 
-        foreach ($filteredPositions as $position => $type) {
-            if (!isset($positionWiseCompletion[$position])) {
-                $positionWiseCompletion[$position] = [
-                    'completed_in_4_days' => 0,
-                    'completed_in_5_to_8_days' => 0,
-                    'completed_in_more_than_8_days' => 0,
-                ];
-            }
-        }
+        $filteredResultsfreelancer = $totalProjectsFreelancer->filter(function ($entry) {
+            return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
+        })->values();
 
-        // Add the counts to the person's data for response
-        $entry->writer_count = $writerCount;
-        $entry->reviewer_count = $reviewerCount;
-        $entry->journal_count = $journalCount;
-        $entry->statistican_count = $statisticanCount;
-        $entry->writerPendingCount = $writerPendingCount;
-        $entry->reviewerPendingCount = $reviewerPendingCount;
-        $entry->journalPendingCount = $journalPendingCount;
-        $entry->statisticanPendingCount = $statisticanPendingCount;
-        $entry->statisticanOngoingCount = $statisticanOngoingCount;
-        $entry->writerOngoingCount = $writerOngoingCount;
-        $entry->reviewerOngoingCount = $reviewerOngoingCount;
-        $entry->writerNeedCount = $writerNeedCount;
-        $entry->reviewerNeedCount = $reviewerNeedCount;
-        $entry->writerCorrectionCount = $writerCorrectionCount;
-        $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-        $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-        $entry->positionWiseCompletion = $positionWiseCompletion;
-    }
-
-    $filteredResultsfreelancer = $totalProjectsFreelancer->filter(function ($entry) {
-        return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    })->values();
-
-    // Thesis project section (similar fixes applied)
-    $allWriterData = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
-        ->where('position', '!=', 'Admin')
-        ->whereIn('position', [7, 8, 11])
-        ->get()
-        ->map(function ($person) {
-            $person->created_by_users = $person->created_by_users;
-            return $person;
-        });
-
-    foreach ($allWriterData as $entry) {
-        $emp_pos = $entry->position;
-        $emp_id = $entry->id;
-        $positions = explode(',', $emp_pos);
-        
-        $writerCount = $reviewerCount = $statisticanCount = 0;
-        $writerPendingCount = $reviewerPendingCount = $statisticanPendingCount = 0;
-        $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
-        $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
-
-        $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })
+        // Thesis project section (similar fixes applied)
+        $allWriterData = People::select('id', 'position', 'employee_name', 'employee_type')->with(['createdByUser'])
+            ->where('position', '!=', 'Admin')
+            ->whereIn('position', [7, 8, 11])
             ->get()
-            ->pluck('project_id')
-            ->unique('project_id')
-            ->values()
-            ->toArray();
+            ->map(function ($person) {
+                $person->created_by_users = $person->created_by_users;
+                return $person;
+            });
 
+        foreach ($allWriterData as $entry) {
+            $emp_pos = $entry->position;
+            $emp_id = $entry->id;
+            $positions = explode(',', $emp_pos);
 
-        // Process position-wise counts
-        if (in_array('7', $positions)) {
-            $writerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->where('type', 'writer')
-                ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
+            $writerCount = $reviewerCount = $statisticanCount = 0;
+            $writerPendingCount = $reviewerPendingCount = $statisticanPendingCount = 0;
+            $writerOngoingCount = $reviewerOngoingCount = $writerNeedCount = $reviewerNeedCount = 0;
+            $writerCorrectionCount = $reviewerCorrectionCount = $statisticanOngoingCount = $statisticanCorrectionCount = 0;
 
-            $entry->writer_project_ids = $writerAssignment;
-            $writerCount = $writerAssignment->count();
-            
-            $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->where('type', 'writer')
+            $writerDataId = ProjectAssignDetails::where('assign_user', $emp_id)
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('process_status', '!=', 'completed')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-                
-            $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
+                    $query->whereDate('entry_date', '>=', $fromDate)
                         ->whereDate('entry_date', '<=', $toDate)
-                        ->where('process_status', '!=', 'completed');
-                })
-                ->count();
-                
-            $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('status', 'need_support')
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-                
-            $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->where('type', 'writer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-        }
-
-        if (in_array('8', $positions)) {
-            $reviewerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->where('is_deleted', 0);
                 })
                 ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
-                ->values();
+                ->pluck('project_id')
+                ->unique('project_id')
+                ->values()
+                ->toArray();
 
-            $entry->reviewer_project_ids = $reviewerAssignment;
-            $reviewerCount = $reviewerAssignment->count();
 
-            $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+            // Process position-wise counts
+            if (in_array('7', $positions)) {
+                $writerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->where('is_deleted', 0);
+                    })
+                    ->where('type', 'writer')
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->writer_project_ids = $writerAssignment;
+                $writerCount = $writerAssignment->count();
+
+                $writerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('process_status', '!=', 'completed')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $writerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate)
+                            ->where('process_status', '!=', 'completed');
+                    })
+                    ->count();
+
+                $writerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('status', 'need_support')
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $writerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->where('type', 'writer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+            }
+
+            if (in_array('8', $positions)) {
+                $reviewerAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->reviewer_project_ids = $reviewerAssignment;
+                $reviewerCount = $reviewerAssignment->count();
+
+                $reviewerPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('status', 'need_support')
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->where('type', 'reviewer')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+            }
+
+            if (in_array('11', $positions)) {
+                $statisticanAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('type', 'statistican')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'withdrawal')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->get()
+                    ->pluck('projectData.id')
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $entry->statistican_project_ids = $statisticanAssignment;
+                $statisticanCount = $statisticanAssignment->count();
+
+                $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
+                    ->where('type', 'statistican')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['on_going', 'to_do'])
+                    ->where('type', 'statistican')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->where('status', 'need_support')
+                    ->where('type', 'statistican')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+
+                $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
+                    ->whereIn('status', ['correction', 'plag_correction'])
+                    ->where('type', 'statistican')
+                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
+                        $query->where('type_of_work', 'thesis')
+                            ->where('is_deleted', 0)
+                            ->where('process_status', '!=', 'completed')
+                            ->whereDate('entry_date', '>=', $fromDate)
+                            ->whereDate('entry_date', '<=', $toDate);
+                    })
+                    ->count();
+            }
+
+            $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
+                ->where('assign_user', $emp_id)
+                ->whereIn('project_id', $writerDataId)
                 ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->where('type', 'reviewer')
                 ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                     $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-                
-            $reviewerOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-                
-            $reviewerNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('status', 'need_support')
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-                
-            $reviewerCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->where('type', 'reviewer')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-        }
-
-        if (in_array('11', $positions)) {
-            $statisticanAssignment = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('type', 'statistican')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
+                        ->whereNotIn('process_status', ['completed', 'withdrawal'])
                         ->where('is_deleted', 0)
                         ->whereDate('entry_date', '>=', $fromDate)
                         ->whereDate('entry_date', '<=', $toDate);
                 })
+                ->whereHas('employee_rejected', function ($query) {
+                    $query->where('status', '!=', 'rejected');
+                })
+                ->orderBy('id', 'desc')
                 ->get()
-                ->pluck('projectData.id')
-                ->filter()
-                ->unique()
+                // FIX: was ->unique('project_id') only, which collapses a
+                // pending writer row and a pending reviewer row on the SAME
+                // project down to just one of them (whichever sorts first),
+                // silently dropping the other role's row before it can be
+                // bucketed by day below. Dedupe by project_id + type together
+                // instead, since a single project can legitimately have this
+                // employee pending on it in more than one role at once.
+                ->unique(function ($item) {
+                    return $item->project_id . '_' . $item->type;
+                })
                 ->values();
 
-            $entry->statistican_project_ids = $statisticanAssignment;
-            $statisticanCount = $statisticanAssignment->count();
-            
-            $statisticanPendingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-                ->where('type', 'statistican')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-                
-            $statisticanOngoingCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['on_going', 'to_do'])
-                ->where('type', 'statistican')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-                
-            $statisticanNeedCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->where('status', 'need_support')
-                ->where('type', 'statistican')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
+            $positionWiseCompletion = [];
+            $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
+            $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
+                return in_array($key, $positions);
+            }, ARRAY_FILTER_USE_KEY);
 
-            $statisticanCorrectionCount = ProjectAssignDetails::where('assign_user', $emp_id)
-                ->whereIn('status', ['correction', 'plag_correction'])
-                ->where('type', 'statistican')
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('type_of_work', 'thesis')
-                        ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->count();
-        }
+            foreach ($projectlist as $project) {
+                $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
+                $projPositions = isset($empposition) ? explode(',', $empposition) : [];
+                $statusType = $project->type;
 
-        $projectlist = ProjectAssignDetails::with(['UserDate', 'projectData'])
-            ->where('assign_user', $emp_id)
-            ->whereIn('project_id', $writerDataId)
-            ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support'])
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('type_of_work', 'thesis')
-                    ->where('process_status', '!=', 'completed')
-                    ->where('is_deleted', 0)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })
-            ->whereHas('employee_rejected', function ($query) {
-                $query->where('status', '!=', 'rejected');
-            })
-            ->orderBy('id', 'desc')
-            ->get()
-            ->unique('project_id')
-            ->values();
+                $statusDateTime = new \DateTime($project->project_duration);
+                $completedDateTime = new \DateTime($project->updated_at);
+                $interval = $statusDateTime->diff($completedDateTime);
+                $daysDifference = $interval->days + 1;
 
-        $positionWiseCompletion = [];
-        $requiredPositions = ['7' => 'writer', '8' => 'reviewer', '11' => 'statistican'];
-        $filteredPositions = array_filter($requiredPositions, function ($key) use ($positions) {
-            return in_array($key, $positions);
-        }, ARRAY_FILTER_USE_KEY);
+                foreach ($projPositions as $position) {
+                    $position = trim($position);
 
-        foreach ($projectlist as $project) {
-            $empposition = isset($project->UserDate->position) ? $project->UserDate->position : null;
-            $projPositions = isset($empposition) ? explode(',', $empposition) : [];
-            $statusType = $project->type;
+                    if (!isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
+                        continue;
+                    }
 
-            $statusDateTime = new \DateTime($project->projectDuration);
-            $completedDateTime = new \DateTime($project->updated_at);
-            $interval = $statusDateTime->diff($completedDateTime);
-            $daysDifference = $interval->days + 1;
+                    if (!isset($positionWiseCompletion[$position])) {
+                        $positionWiseCompletion[$position] = [
+                            'completed_in_4_days' => 0,
+                            'completed_in_5_to_8_days' => 0,
+                            'completed_in_more_than_8_days' => 0,
+                        ];
+                    }
 
-            foreach ($projPositions as $position) {
-                $position = trim($position);
-
-                if (!isset($requiredPositions[$position]) || $requiredPositions[$position] !== $statusType) {
-                    continue;
+                    switch ($this->bucketCompletionDays($daysDifference)) {
+                        case '4':
+                            $positionWiseCompletion[$position]['completed_in_4_days']++;
+                            break;
+                        case '5to8':
+                            $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
+                            break;
+                        case 'more8':
+                            $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
+                            break;
+                    }
                 }
+            }
 
+            foreach ($filteredPositions as $position => $type) {
                 if (!isset($positionWiseCompletion[$position])) {
                     $positionWiseCompletion[$position] = [
                         'completed_in_4_days' => 0,
@@ -8865,56 +4906,37 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                         'completed_in_more_than_8_days' => 0,
                     ];
                 }
-
-                if ($daysDifference < 4) {
-                    $positionWiseCompletion[$position]['completed_in_4_days']++;
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $positionWiseCompletion[$position]['completed_in_5_to_8_days']++;
-                } else {
-                    $positionWiseCompletion[$position]['completed_in_more_than_8_days']++;
-                }
             }
+
+            // Add the counts to the person's data for response
+            $entry->writer_count = $writerCount;
+            $entry->reviewer_count = $reviewerCount;
+            $entry->statistican_count = $statisticanCount;
+            $entry->writerPendingCount = $writerPendingCount;
+            $entry->reviewerPendingCount = $reviewerPendingCount;
+            $entry->statisticanPendingCount = $statisticanPendingCount;
+            $entry->statisticanNeedCount = $statisticanNeedCount;
+            $entry->statisticanOngoingCount = $statisticanOngoingCount;
+            $entry->writerOngoingCount = $writerOngoingCount;
+            $entry->reviewerOngoingCount = $reviewerOngoingCount;
+            $entry->writerNeedCount = $writerNeedCount;
+            $entry->reviewerNeedCount = $reviewerNeedCount;
+            $entry->writerCorrectionCount = $writerCorrectionCount;
+            $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
+            $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
+            $entry->positionWiseCompletion = $positionWiseCompletion;
         }
 
-        foreach ($filteredPositions as $position => $type) {
-            if (!isset($positionWiseCompletion[$position])) {
-                $positionWiseCompletion[$position] = [
-                    'completed_in_4_days' => 0,
-                    'completed_in_5_to_8_days' => 0,
-                    'completed_in_more_than_8_days' => 0,
-                ];
-            }
-        }
+        $allWriterData_thesis = $allWriterData->filter(function ($entry) {
+            return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
+        })->values();
 
-        // Add the counts to the person's data for response
-        $entry->writer_count = $writerCount;
-        $entry->reviewer_count = $reviewerCount;
-        $entry->statistican_count = $statisticanCount;
-        $entry->writerPendingCount = $writerPendingCount;
-        $entry->reviewerPendingCount = $reviewerPendingCount;
-        $entry->statisticanPendingCount = $statisticanPendingCount;
-        $entry->statisticanNeedCount = $statisticanNeedCount;
-        $entry->statisticanOngoingCount = $statisticanOngoingCount;
-        $entry->writerOngoingCount = $writerOngoingCount;
-        $entry->reviewerOngoingCount = $reviewerOngoingCount;
-        $entry->writerNeedCount = $writerNeedCount;
-        $entry->reviewerNeedCount = $reviewerNeedCount;
-        $entry->writerCorrectionCount = $writerCorrectionCount;
-        $entry->reviewerCorrectionCount = $reviewerCorrectionCount;
-        $entry->statisticanCorrectionCount = $statisticanCorrectionCount;
-        $entry->positionWiseCompletion = $positionWiseCompletion;
+        return response()->json([
+            'peopleInhouse' => $filteredResultsInhouse,
+            'peopleExternal' => $filteredResultsfreelancer,
+            'peopleWriterExternal' => $allWriterData_thesis,
+        ]);
     }
-
-    $allWriterData_thesis = $allWriterData->filter(function ($entry) {
-        return $entry->writer_count > 0 || $entry->reviewer_count > 0 || $entry->statistican_count > 0;
-    })->values();
-
-    return response()->json([
-        'peopleInhouse' => $filteredResultsInhouse,
-        'peopleExternal' => $filteredResultsfreelancer,
-        'peopleWriterExternal' => $allWriterData_thesis,
-    ]);
-}
 
     // tcDashboard
 
@@ -9309,7 +5331,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         )
             ->where('hierarchy_level', 'urgent_important')
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
             // ->whereYear('entry_date', $currentYear)
@@ -9513,7 +5535,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             )
             ->where('projectduration', '<', $currentDate)
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             ->whereYear('entry_date', $currentYear)
             ->orderBy('id', 'desc')
             ->get();
@@ -9732,7 +5754,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
         $urgentDataList = EntryProcessModel::select('id', 'journal', 'writer', 'statistican', 'reviewer', 'hierarchy_level', 'project_id')->where('hierarchy_level', 'urgent_important')
             ->where('is_deleted', 0)
-            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author','withdrawal'])
+            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
             // ->whereRaw("DATE_FORMAT(entry_date, '%Y-%m') = ?", [$selectedMonth])
             ->orderBy('id', 'desc')
             ->get();
@@ -9758,7 +5780,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         )
             ->where('projectduration', '<', $currentDate)
             ->where('is_deleted', 0)
-            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author','withdrawal'])
+            ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author', 'withdrawal'])
             // ->whereRaw("DATE_FORMAT(entry_date, '%Y-%m') = ?", [$selectedMonth])
             ->orderBy('id', 'desc')
             ->get();
@@ -9777,8 +5799,8 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             // ->whereIn('created_by', $peopleIds_pm)
             ->whereIn('status', array_keys($journalStatusCounts))
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted',0)
-                ->where('process_status', '!=', 'completed')
+                $query->where('is_deleted', 0)
+                    ->whereNotIn('process_status', ['completed', 'withdrawal'])
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
             })
@@ -9865,7 +5887,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
-
             })
             ->count();
         $resubmission_rejected = ProjectAssignDetails::with(['projectData'])->whereIn('status', ['resubmission', 'rejected'])
@@ -10301,7 +6322,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
         $urgentDataList = EntryProcessModel::select('id', 'journal', 'writer', 'statistican', 'reviewer', 'hierarchy_level', 'project_id')->where('hierarchy_level', 'urgent_important')
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             // ->whereYear('entry_date', $currentYear)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
@@ -10327,7 +6348,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         )
             ->where('projectduration', '<', $currentDate)
             ->where('is_deleted', 0)
-            ->where('process_status', '!=', 'completed')
+            ->whereNotIn('process_status', ['completed', 'withdrawal'])
             // ->whereYear('entry_date', $currentYear)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
@@ -10348,7 +6369,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             ->whereIn('status', array_keys($journalStatusCounts))
             ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
                 $query->where('is_deleted', 0)
-                    ->where('process_status', '!=', 'completed')
+                    ->whereNotIn('process_status', ['completed', 'withdrawal'])
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate);
             })
@@ -10712,6 +6733,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             'inhouseExternal' => $this->inhouseExternal($request, $fromDate, $toDate)->getData(true),
             'monthWiseTable' => $this->monthWiseTable($position, $fromDate, $toDate),
             // 'monthWiseTable' => $this->monthWiseTable($position, $selectedMonth),
+            'staaging' => 'staaging'
 
         ]);
     }
@@ -10719,10 +6741,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
     public function dashboardProjectList(Request $request)
     {
         $position = $request->get('position');
-        // dd($position);
-        // Log::info("position",$position);
-        // console.log($position);
-
         if ($position === 'admin') {
             return [
                 'inhouseExternal' => $this->inhouseExternal($request)->getData(true),
@@ -10857,8 +6875,8 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
             if ($entry->relationLoaded('writerData')) {
                 $filteredWriters = $entry->writerData
-                ->where('assign_user', $created_by)->where('type', 'writer');
-            
+                    ->where('assign_user', $created_by)->where('type', 'writer');
+
                 if ($filteredWriters->isNotEmpty()) {
                     $writerCount += $filteredWriters->count();
                 }
@@ -11228,11 +7246,10 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             if (! $toDate) {
                 $toDate = date('Y-m-d');
             }
-            // dd($selectedMonth);
+
             $entries = EntryProcessModel::select('id', 'entry_date', 'type_of_work')->where('is_deleted', 0)
                 ->whereDate('entry_date', '>=', $fromDate)
                 ->whereDate('entry_date', '<=', $toDate)
-                // ->whereYear('entry_date', $currentYear)
                 ->get();
 
             $settingentries = Setting::first();
@@ -11256,7 +7273,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 'thesis_percentage' => 0,
                 'others_percentage' => 0,
                 'target_percentage' => 0,
-                // 'target_percentages' => 0,
                 'not_assigned' => 0,
                 'withdrawn' => 0,
             ];
@@ -11270,7 +7286,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 // Get counts of 'not_assigned' and 'withdrawal' projects for this month
                 $notAssignEntries = EntryProcessModel::where('is_deleted', 0)
                     ->where('process_status', 'not_assigned')
-                    // ->whereYear('entry_date', $currentYear)
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate)
                     ->whereMonth('entry_date', $month)
@@ -11278,7 +7293,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                 $withdrawEntries = EntryProcessModel::where('is_deleted', 0)
                     ->where('process_status', 'withdrawal')
-                    // ->whereYear('entry_date', $currentYear)
                     ->whereDate('entry_date', '>=', $fromDate)
                     ->whereDate('entry_date', '<=', $toDate)
                     ->whereMonth('entry_date', $month)
@@ -11306,7 +7320,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 // Calculate percentages for each type_of_work
                 $percentages = [];
                 foreach ($typeOfWorkCounts as $key => $count) {
-
                     $percentages[$key] = $totalCount > 0 ? round(($count / $totalCount) * 100, 2) : 0;
                 }
 
@@ -11337,8 +7350,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                     'statistics' => $typeOfWorkCounts['statistics'],
                     'thesis' => $typeOfWorkCounts['thesis'],
                     'others' => $typeOfWorkCounts['others'],
-                    // 'presentation' => $typeOfWorkCounts['presentation'],
-                    // 'total' => $totalCount,
                     'total' => $totalCount,
                     'manuscript_percentage' => $manuscript_percentage,
                     'statistics_percentage' => $statistics_percentage,
@@ -11353,27 +7364,35 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 $footerTotals['manuscript'] += $typeOfWorkCounts['manuscript'];
                 $footerTotals['statistics'] += $typeOfWorkCounts['statistics'];
                 $footerTotals['thesis'] += $typeOfWorkCounts['thesis'];
-                // $footerTotals['presentation'] += $typeOfWorkCounts['presentation'];
                 $footerTotals['others'] += $typeOfWorkCounts['others'];
                 $footerTotals['total'] += $totalCount;
-                $footerTotals['manuscript_percentage'] += $manuscript_percentage;
-                $footerTotals['statistics_percentage'] += $statistics_percentage;
-                $footerTotals['thesis_percentage'] += $thesis_percentage;
-                $footerTotals['others_percentage'] += $others_percentage;
-
-                $footerTotals['target_percentage'] += $targetPercentages;
-                // $footerTotals['target_percentages'] += $targetPercentages;
                 $footerTotals['not_assigned'] += $notAssignEntries;
                 $footerTotals['withdrawn'] += $withdrawEntries;
             }
 
-            // $monthlyCount = count($monthlyData);
-            // if ($monthlyCount > 0) {
-            //     $footerTotals['manuscript_percentage'] = round($footerTotals['manuscript_percentage'] / $monthlyCount, 2);
-            //     $footerTotals['statistics_percentage'] = round($footerTotals['statistics_percentage'] / $monthlyCount, 2);
-            //     $footerTotals['thesis_percentage'] = round($footerTotals['thesis_percentage'] / $monthlyCount, 2);
-            //     $footerTotals['target_percentage'] = round($footerTotals['target_percentage'] / $monthlyCount, 2);
-            // }
+            // ==============================================
+            // FIX: Calculate footer percentages from totals
+            // ==============================================
+            $footerTotals['manuscript_percentage'] = $footerTotals['total'] > 0
+                ? round(($footerTotals['manuscript'] / $footerTotals['total']) * 100, 2)
+                : 0;
+
+            $footerTotals['statistics_percentage'] = $footerTotals['total'] > 0
+                ? round(($footerTotals['statistics'] / $footerTotals['total']) * 100, 2)
+                : 0;
+
+            $footerTotals['thesis_percentage'] = $footerTotals['total'] > 0
+                ? round(($footerTotals['thesis'] / $footerTotals['total']) * 100, 2)
+                : 0;
+
+            $footerTotals['others_percentage'] = $footerTotals['total'] > 0
+                ? round(($footerTotals['others'] / $footerTotals['total']) * 100, 2)
+                : 0;
+
+            // Calculate target percentage for footer
+            $footerTotals['target_percentage'] = $footerTotals['total'] > 0
+                ? round(($footerTotals['total'] / $targetval) * 12, 2)
+                : 0;
 
             return [
                 'monthlyData' => $monthlyData,
@@ -11455,7 +7474,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                     $activity = new ProjectActivity;
                     $activity->project_id = $id;
-                    $activity->activity = 'Projected marked as '.$request->status.' by '.$userDetails->employee_name.'(Writer)';
+                    $activity->activity = 'Projected marked as ' . $request->status . ' by ' . $userDetails->employee_name . '(Writer)';
                     $activity->role = 'Writer';
                     $activity->created_by = $request->created_by;
                     $activity->created_date = now();
@@ -11650,7 +7669,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                             return response()->json(['success' => true, 'message' => 'Email sent successfully.']);
                         } catch (\Exception $e) {
-                            Log::error('Mail failed: '.$e->getMessage());
+                            Log::error('Mail failed: ' . $e->getMessage());
 
                             return response()->json(['success' => false, 'message' => 'Failed to send email.']);
                         }
@@ -11679,7 +7698,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                     $activity = new ProjectActivity;
                     $activity->project_id = $id;
-                    $activity->activity = 'Projected marked as '.$request->status.' by '.$userDetails->employee_name.'(Reviewer)';
+                    $activity->activity = 'Projected marked as ' . $request->status . ' by ' . $userDetails->employee_name . '(Reviewer)';
                     $activity->role = 'Reviewer';
                     $activity->created_by = $request->created_by;
                     $activity->created_date = now();
@@ -11836,7 +7855,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                             return response()->json(['success' => true, 'message' => 'Email sent successfully.']);
                         } catch (\Exception $e) {
-                            Log::error('Mail failed: '.$e->getMessage());
+                            Log::error('Mail failed: ' . $e->getMessage());
 
                             return response()->json(['success' => false, 'message' => 'Failed to send email.']);
                         }
@@ -11865,7 +7884,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                     $activity = new ProjectActivity;
                     $activity->project_id = $id;
-                    $activity->activity = 'Projected marked as '.$request->status.' by '.$userDetails->employee_name.'(Statistican)';
+                    $activity->activity = 'Projected marked as ' . $request->status . ' by ' . $userDetails->employee_name . '(Statistican)';
                     $activity->role = 'Statistican';
                     $activity->created_by = $request->created_by;
                     $activity->created_date = now();
@@ -12019,7 +8038,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                             return response()->json(['success' => true, 'message' => 'Email sent successfully.']);
                         } catch (\Exception $e) {
-                            Log::error('Mail failed: '.$e->getMessage());
+                            Log::error('Mail failed: ' . $e->getMessage());
 
                             return response()->json(['success' => false, 'message' => 'Failed to send email.']);
                         }
@@ -12125,7 +8144,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                         $activity = new ProjectActivity;
                         $activity->project_id = $id;
-                        $activity->activity = 'Project '.$request->type.' to '.$userDetails->employee_name.'(writer)';
+                        $activity->activity = 'Project ' . $request->type . ' to ' . $userDetails->employee_name . '(writer)';
                         $activity->role = 'writer';
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -12162,7 +8181,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                         $activity = new ProjectActivity;
                         $activity->project_id = $id;
-                        $activity->activity = 'Project '.$request->type.' to '.$userDetails->employee_name.'(reviewer)';
+                        $activity->activity = 'Project ' . $request->type . ' to ' . $userDetails->employee_name . '(reviewer)';
                         $activity->role = 'reviewer';
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -12200,7 +8219,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                         $activity = new ProjectActivity;
                         $activity->project_id = $id;
-                        $activity->activity = 'Project '.$request->type.' to '.$userDetails->employee_name.'(statistican)';
+                        $activity->activity = 'Project ' . $request->type . ' to ' . $userDetails->employee_name . '(statistican)';
                         $activity->role = 'statistican';
                         $activity->created_by = $request->created_by;
                         $activity->created_date = now();
@@ -12549,7 +8568,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                     return response()->json(['success' => true, 'message' => 'Email sent successfully.']);
                 } catch (\Exception $e) {
                     // Log the error
-                    Log::error('Mail failed: '.$e->getMessage());
+                    Log::error('Mail failed: ' . $e->getMessage());
 
                     return response()->json(['success' => false, 'message' => 'Failed to send email.']);
                 }
@@ -12842,7 +8861,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
             return response()->json(['success' => true, 'message' => 'Email sent successfully.']);
         } catch (\Exception $e) {
-            Log::error('Mail failed: '.$e->getMessage(), [
+            Log::error('Mail failed: ' . $e->getMessage(), [
                 'project_id' => $projectDetails->project_id,
                 'email' => $projectDetails->email,
                 'notification_v' => $notificationV,
@@ -13273,6 +9292,16 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         ]);
     }
 
+    private function bucketCompletionDays(int $daysDifference): string
+    {
+        if ($daysDifference <= 4) {
+            return '4';
+        } elseif ($daysDifference <= 8) {
+            return '5to8';
+        }
+        return 'more8';
+    }
+
     public function getEmpProjectList(Request $request)
     {
         $type = $request->input('type');
@@ -13285,6 +9314,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
         $positions = explode(',', $type);
         $types = [];
+        $relations = [];
 
         if (in_array('7', $positions)) {
             $types[] = 'writer';
@@ -13299,8 +9329,8 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             $relations[] = 'statisticanData';
         }
 
-        // Now build the query
-        $query = EntryProcessModel::with([
+        // Build the base query
+        $baseQuery = EntryProcessModel::with([
             'institute',
             'department',
             'profession',
@@ -13327,10 +9357,10 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             ->where('is_deleted', 0)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
-            ->where('process_status', '!=', 'completed');
+            ->whereNotIn('process_status', ['completed', 'withdrawal']);
 
         // Add dynamic whereHas filters
-        $query->where(function ($q) use ($positions, $createdBy) {
+        $baseQuery->where(function ($q) use ($positions, $createdBy) {
             if (in_array('7', $positions)) {
                 $q->orWhereHas('writerData', function ($subQuery) use ($createdBy) {
                     $subQuery->where('assign_user', $createdBy)
@@ -13353,24 +9383,26 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             }
         });
 
+        // Add type_of_work filter
+        if (!empty($typeOfWork) && $typeOfWork !== 'all') {
+            $baseQuery->where('type_of_work', $typeOfWork);
+        }
+
+        // Add date range filter if provided
+        if (!empty($start_date) && !empty($end_date)) {
+            $baseQuery->whereBetween('entry_date', [$start_date, $end_date]);
+        }
+
         // Add relation eager loading only if needed
-        if (! empty($relations)) {
-            $query->with($relations);
+        if (!empty($relations)) {
+            $baseQuery->with($relations);
         }
 
-        if (! empty($typeOfWork) && $typeOfWork !== 'all') {
-            $query->where('type_of_work', $typeOfWork);
-        }
+        // Get count BEFORE executing the query for data
+        $projectsCount = $baseQuery->count();
 
-        if (! empty($start_date) && ! empty($end_date)) {
-            $query->whereBetween('entry_date', [$start_date, $end_date]);
-        }
-
-        if (! empty($relations)) {
-            $query->with($relations);
-        }
-
-        $projects = $query->get();
+        // Now get the data
+        $projects = $baseQuery->get();
 
         if ($projects->isEmpty()) {
             return response()->json([
@@ -13382,7 +9414,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             ]);
         }
 
-        $projectsCount = $query->count();
+        // Initialize counters
         $projectpendingcount = 0;
         $projectemergencycount = 0;
 
@@ -13403,11 +9435,13 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             $project->completedIn5To8Days = '-';
             $project->completedInMoreThan8Days = '-';
 
-            $assignList = ProjectAssignDetails::with('projectData')->where('project_id', $projectid)
+            $assignList = ProjectAssignDetails::with('projectData')
+                ->where('project_id', $projectid)
                 ->where('assign_user', $empid)
                 ->whereHas('projectData', function ($q) use ($fromDate, $toDate) {
                     $q->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
+                        ->whereDate('entry_date', '<=', $toDate)
+                        ->where('is_deleted', 0);
                 })
                 ->first();
 
@@ -13417,73 +9451,73 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                     if ($project->writer_status === 'completed') {
                         $project->writer_pending_days = 0;
                     } else {
-                        // Writer pending days calculation
                         $assignedDate = Carbon::parse($project->assign_date);
                         $projectDurationDate = Carbon::parse($project->project_duration);
                         $pendingDays = $assignedDate->diffInDays($projectDurationDate);
-
                         $project->writer_pending_days = $pendingDays;
                     }
                 }
 
                 if (in_array('8', $positions) || $assignList->assign_user === $createdBy) {
-                    // $project->reviewer_pending_days = ($assignList->status === 'completed') ? 0
-                    //     : Carbon::parse($assignList->assign_date)->diffInDays(Carbon::parse($assignList->project_duration));
-
                     if ($assignList->status === 'completed') {
                         $project->reviewer_pending_days = 0;
                     } else {
                         $assignedDate = Carbon::parse($assignList->assign_date);
-
                         $projectDurationDate = Carbon::parse($assignList->project_duration);
-
                         $pendingDays = $assignedDate->diffInDays($projectDurationDate);
                         $project->reviewer_pending_days = $pendingDays;
                     }
                 }
 
                 if (in_array('11', $positions) || $assignList->assign_user === $createdBy) {
-                    // $project->statistican_pending_days = ($assignList->status === 'completed') ? 0
-                    //     : Carbon::parse($assignList->assign_date)->diffInDays(Carbon::parse($assignList->project_duration));
                     if ($assignList->status === 'completed') {
                         $project->statistican_pending_days = 0;
                     } else {
                         $assignedDate = Carbon::parse($assignList->assign_date);
-
                         $projectDurationDate = Carbon::parse($assignList->project_duration);
-
                         $pendingDays = $assignedDate->diffInDays($projectDurationDate);
                         $project->statistican_pending_days = $pendingDays;
                     }
                 }
             }
 
-            $projectstatus = ProjectLogs::with('entryProcess')->where('project_id', $projectid)
-                ->where('status', '!=', 'completed')
-                ->where('employee_id', $empid)
-                ->whereHas('entryProcess', function ($q) use ($fromDate, $toDate) {
-                    $q->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->latest()
-                ->first();
-
-            // If a project log is found, calculate the date differences
-            if ($projectstatus) {
-                $statusDateTime = new \DateTime($projectstatus->assigned_date);
-                $completedDateTime = new \DateTime($projectstatus->created_date);
-                $interval = $statusDateTime->diff($completedDateTime);
-
-                // Get the days difference, excluding the start date
+            // FIX (bug 2, revised): the base query above only ever returns
+            // projects where $createdBy's OWN writer/reviewer/statistician
+            // status is NOT 'completed' (see the whereHas filters near the top
+            // of this method). That means a check like
+            // `$assignList->status === 'completed'` can never be true here —
+            // it would make this block permanently dead code, which is exactly
+            // why every row was coming back as "-".
+            //
+            // Since this endpoint is inherently a list of this employee's
+            // PENDING items, and the payload already has elapsed-day counters
+            // for that purpose (writer_pending_days / reviewer_pending_days /
+            // statistican_pending_days, computed the same way), these three
+            // fields now report the same kind of thing bucketed into ranges:
+            // how many days has this task been sitting with the employee since
+            // it was assigned (assign_date -> today).
+            //
+            // >>> If completedIn4Days/5To8/MoreThan8 are meant to represent
+            // >>> something else (e.g. only ever populate for roles that HAVE
+            // >>> completed, sourced from a different table), tell me and I'll
+            // >>> change this — but as written, the field can only ever be
+            // >>> meaningful as an aging/SLA indicator in this endpoint.
+            if ($assignList && $assignList->assign_date) {
+                $assignedDate = new \DateTime($assignList->assign_date);
+                $today = new \DateTime();
+                $interval = $assignedDate->diff($today);
                 $daysDifference = $interval->days + 1;
 
-                // Categorize based on days difference
-                if ($daysDifference <= 4) {
-                    $project->completedIn4Days = '<4 days';
-                } elseif ($daysDifference >= 5 && $daysDifference <= 8) {
-                    $project->completedIn5To8Days = '5 to 8 days';
-                } elseif ($daysDifference >= 9) {
-                    $project->completedInMoreThan8Days = '>9 days';
+                switch ($this->bucketCompletionDays($daysDifference)) {
+                    case '4':
+                        $project->completedIn4Days = '<4 days';
+                        break;
+                    case '5to8':
+                        $project->completedIn5To8Days = '5 to 8 days';
+                        break;
+                    case 'more8':
+                        $project->completedInMoreThan8Days = '>9 days';
+                        break;
                 }
             }
         }
@@ -13496,14 +9530,12 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             ->groupBy('type_of_work')
             ->get();
 
-        // Return the response
         return response()->json([
             'details' => $projects,
             'typeofwork' => $typeOfWorkOptions,
             'projectsCount' => $projectsCount,
             'projectpendingcount' => $projectpendingcount,
             'projectemergencycount' => $projectemergencycount,
-
         ]);
     }
 
@@ -13540,7 +9572,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         $filename = $file->getClientOriginalName();
         $file->move(public_path('uploads'), $filename);
 
-        $path = public_path('uploads/'.$filename);
+        $path = public_path('uploads/' . $filename);
         $data = array_map('str_getcsv', file($path));
         $csv_data = array_slice($data, 1);
 
@@ -13602,21 +9634,21 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             if (in_array('7', $positions)) {
                 $q->orWhereHas('writerData', function ($subQuery) use ($createdBy) {
                     $subQuery->where('assign_user', $createdBy)
-                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
+                        ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
                 });
             }
 
             if (in_array('8', $positions)) {
                 $q->orWhereHas('reviewerData', function ($subQuery) use ($createdBy) {
                     $subQuery->where('assign_user', $createdBy)
-                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
+                        ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
                 });
             }
 
             if (in_array('11', $positions)) {
                 $q->orWhereHas('statisticanData', function ($subQuery) use ($createdBy) {
                     $subQuery->where('assign_user', $createdBy)
-                    ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
+                        ->whereIn('status', ['plag_correction', 'on_going', 'to_do', 'correction', 'need_support']);
                 });
             }
         });
@@ -13806,9 +9838,21 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 $query->pluck('status'); // Plucking the status from the 'writerData' relationship
             }]);
 
+            // if (! empty($process_status)) {
+            //     $totalProjectsQuery->where('process_status', $process_status);
+            // }
             if (! empty($process_status)) {
-                $totalProjectsQuery->where('process_status', $process_status);
+                $processStatuses = is_array($process_status)
+                    ? $process_status
+                    : explode(',', $process_status);
+
+                $processStatuses = array_filter(array_map('trim', $processStatuses));
+
+                if (! empty($processStatuses)) {
+                    $totalProjectsQuery->whereIn('process_status', $processStatuses);
+                }
             }
+
 
             if (! empty($journal_status)) {
                 $totalProjectsQuery->whereHas('journalData', function ($query) use ($journal_status) {
@@ -13828,14 +9872,14 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 $totalProjectsQuery->where('process_status', '=', 'completed')
                     ->where('type_of_work', $completed_count);
             }
-            
+
 
             if (! empty($count_type)) {
                 if ($count_type === 'emergency_work') {
                     if ($created_by) {
-                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->where('process_status', '!=', 'completed');
+                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->whereNotIn('process_status', ['completed', 'withdrawal']);
                     } else {
-                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->where('process_status', '!=', 'completed');
+                        $totalProjectsQuery = $totalProjectsQuery->where('hierarchy_level', 'urgent_important')->whereNotIn('process_status', ['completed', 'withdrawal']);
                     }
                 } elseif ($count_type === 'not_assigned_work') {
                     $totalProjectsQuery = $totalProjectsQuery->where('process_status', 'not_assigned');
@@ -13881,11 +9925,12 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                         'client_name',
                         DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration"),
                         'hierarchy_level',
-                        'project_id'
+                        'project_id',
+                        'process_status'
                     )
                         ->where('projectduration', '<', $currentDate)
                         ->where('is_deleted', 0)
-                        ->where('process_status', '!=', 'completed')
+                        ->whereNotIn('process_status', ['completed', 'withdrawal'])
                         // ->whereYear('entry_date', $currentYear)
                         ->whereDate('entry_date', '>=', $fromDate)
                         ->whereDate('entry_date', '<=', $toDate)
@@ -13904,6 +9949,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                                 'entry_date' => $items->entry_date,
                                 'payment_status' => $items->paymentProcess->payment_status ?? '-',
                                 'client_name' => $items->client_name,
+                                'process_status' => $items->process_status
                             ];
                         });
 
@@ -14056,7 +10102,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             ->where('payment_status', $payment_status)
             ->whereHas('projectData', function ($query) {
                 $query->where('is_deleted', 0);
-
             })
             ->get()
             ->map(function ($project) {
@@ -14111,7 +10156,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
             ->get();
 
         $monthlyIncomeData = $monthlyPayments->groupBy('projectData.type_of_work')->mapWithKeys(function ($group, $key) {
-            return [$key => $group->sum(fn ($item) => optional($item->projectData)->budget ?? 0)];
+            return [$key => $group->sum(fn($item) => optional($item->projectData)->budget ?? 0)];
         })->toArray();
 
         $finalMonthlyIncome = array_merge($typeofwork, $monthlyIncomeData);
@@ -14128,7 +10173,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         })->values();
 
         $yearlyIncomeData = $yearlyPayments->groupBy('projectData.type_of_work')->mapWithKeys(function ($group, $key) {
-            return [$key => $group->sum(fn ($item) => optional($item->projectData)->budget ?? 0)];
+            return [$key => $group->sum(fn($item) => optional($item->projectData)->budget ?? 0)];
         })->toArray();
 
         $finalYearlyIncome = array_merge($typeofwork, $yearlyIncomeData);
@@ -14244,7 +10289,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
             $activity = new ProjectActivity;
             $activity->project_id = $id;
-            $activity->activity = 'SME marked as  '.$status.' to Publication Manager';
+            $activity->activity = 'SME marked as  ' . $status . ' to Publication Manager';
             $activity->role = 'Sme';
             $activity->created_by = $createdby;
             $activity->created_date = now();
@@ -14296,7 +10341,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                     Log::info('Email sent to project manager and team manager');
                 } catch (\Exception $e) {
-                    Log::error('Mail failed: '.$e->getMessage());
+                    Log::error('Mail failed: ' . $e->getMessage());
                 }
             } else {
                 Log::error('One or more email addresses are missing.');
@@ -14356,13 +10401,13 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 if ($status) {
 
                     $exists = ProjectActivity::where('project_id', $project_id)
-                        ->where('activity', 'project process status  marked as '.$status)
+                        ->where('activity', 'project process status  marked as ' . $status)
                         ->exists();
 
                     if (! $exists) {
                         $activity = new ProjectActivity;
                         $activity->project_id = $project_number;
-                        $activity->activity = 'project process status  marked as '.$status.' By SME';
+                        $activity->activity = 'project process status  marked as ' . $status . ' By SME';
                         $activity->role = 'SME';
                         $activity->created_by = $createdby;
                         $activity->created_date = now();
@@ -14499,7 +10544,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                 $correction_tc->created_by = $createdby;
                 $correction_tc->updated_at = now();
                 $correction_tc->save();
-
             } else {
 
                 ProjectAssignDetails::create([
@@ -14579,7 +10623,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
 
                     return response()->json(['success' => true, 'message' => 'Email sent successfully.']);
                 } catch (\Exception $e) {
-                    Log::error('Mail failed: '.$e->getMessage());
+                    Log::error('Mail failed: ' . $e->getMessage());
 
                     return response()->json(['success' => false, 'message' => 'Failed to send email.']);
                 }
@@ -14863,68 +10907,6 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         }
     }
 
-    // public function updateProjectStatus(Request $request)
-    // {
-    //     $project_id = $request->project_id;
-    //     $emp_id = $request->employee_id;
-    //     $new_emp_id = $request->new_employee_id;
-    //     $type  = $request->type;
-
-    //      if ($type === 'revert') {
-    //         $details = ProjectAssignDetails::where('project_id', $project_id)
-    //             ->where('status', 'revert')
-    //             ->first();
-
-    //         if ($details) {
-    //             $details->assign_user = $new_emp_id;
-    //             $details->save();
-    //         }
-    //     }
-
-    //     $projectLog = ProjectLogs::where('employee_id', $emp_id)->where('project_id', $project_id)->oldest()->first();
-
-    //     $projectAssign = ProjectAssignDetails::with(['employee_rejected' => function ($query) use ($emp_id) {
-    //         $query->where('status', 'rejected')->where('employee_id', $emp_id); // Filtering rejected employees based on employee_id
-    //     }])->get();
-
-    //     //projectStatus for updating the rejected into pending
-    //     $projectStatus = ProjectStatus::where('project_id', $project_id)->where('assign_id', $emp_id)->first();
-    //     if ($projectStatus) {
-    //         $projectStatus->assign_id = $new_emp_id;
-    //         $projectStatus->status = "pending";
-    //         $projectStatus->save();
-    //     } else {
-    //         $projectstatus = new ProjectStatus();
-    //         $projectstatus->project_id = $project_id;
-    //         $projectstatus->assign_id = $new_emp_id;
-    //         $projectstatus->status = "pending";
-    //         $projectstatus->save();
-    //     }
-
-    //     $projectLogs = $projectAssign->where('assign_user', $emp_id)->where('project_id', $project_id);
-
-    //     // Loop through each log and update as needed
-    //     foreach ($projectLogs as $log) {
-    //         if ($log->employee_rejected->isNotEmpty()) {
-    //             // Update the main assign_user
-    //             $log->assign_user = $new_emp_id;
-    //             $log->status = $projectLog->status;
-    //             $log->save();
-
-    //             // Update each matching rejected employee record
-    //             // foreach ($log->employee_rejected as $rejected) {
-    //             //     $rejected->employee_id = $new_emp_id;
-    //             //     $rejected->status = $log->status; // set to main status
-    //             //     $rejected->save();
-    //             // }
-    //         }
-    //     }
-
-    //     return $projectLogs;
-
-    //     // If type is 'revert', update the revert assignment as well
-
-    // }
 
     public function updateProjectStatus(Request $request)
     {
@@ -15083,16 +11065,14 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
         try {
             $employees = DB::connection('mysql_medics_hrms')
                 ->table('employee_details')
-                ->whereNotIn('position', ['Admin', '13', '14', '27', '28', '23', '42', '11'])
+                ->whereNotIn('position', ['Admin', '13', '14', '27', '28', '23', '42'])
                 ->select('id', 'employee_name', 'position')
+                ->where('status', '1')
                 ->get();
 
             $result = [];
 
             foreach ($employees as $employee) {
-                // If you need to get creator name from users table
-                // Load the creator relationship (you'll need to use Eloquent model instead of DB query)
-                // Or query users table directly
                 if ($employee->position === '7,8') {
                     $creator = 'Writer, Reviewer';
                 } else {
@@ -15101,6 +11081,7 @@ $entry->statistican_count = $filteredEntries->sum(function ($item) use ($emp_id)
                         ->where('id', $employee->position)
                         ->value('name') ?? 'Admin';
                 }
+
 
                 $result[] = [
                     'id' => $employee->id,
