@@ -5573,6 +5573,9 @@ class EntryProcessController extends Controller
         $entries = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
             ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author'])
             ->whereDate('entry_date', '<=', $toDate)->get();
+        $entriesPM = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
+            ->whereNotIn('process_status', ['completed'])
+            ->whereDate('entry_date', '<=', $toDate)->get();
         $totalCount = EntryProcessModel::select('id')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)->count();
 
@@ -5604,6 +5607,7 @@ class EntryProcessController extends Controller
             'withdrawal' => 0,
             'in_progress' => 0,
             'completed' => 0,
+            'client_review' => 0,
         ];
         $journalStatusCounts = [
             'submit_to_journal' => 0,
@@ -5907,7 +5911,7 @@ class EntryProcessController extends Controller
             })
             ->count();
 
-        foreach ($entries as $entry) {
+        foreach ($entriesPM as $entry) {
             // Count type_of_work
             $typeOfWorkCounts[$entry->type_of_work] = ($typeOfWorkCounts[$entry->type_of_work] ?? 0) + 1;
 
