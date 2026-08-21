@@ -5604,6 +5604,7 @@ class EntryProcessController extends Controller
             'withdrawal' => 0,
             'in_progress' => 0,
             'completed' => 0,
+            'client_review' => 0,
         ];
         $journalStatusCounts = [
             'submit_to_journal' => 0,
