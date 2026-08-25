@@ -631,7 +631,8 @@ class EntryProcessController extends Controller
 
 
         // Determine if project is in SME phase
-        $shouldBeInSME  =  $hasSMEActivity  ||  ($hasCompletedTasks  &&  !$writer  &&  !$reviewer  &&  !$statistician  &&  !$rejected);
+        $shouldBeInSME  =  $hasSMEActivity  ||  $hasCompletedTasks;
+        // $shouldBeInSME  =  $hasSMEActivity  ||  ($hasCompletedTasks  &&  !$writer  &&  !$reviewer  &&  !$statistician  &&  !$rejected);
 
 
         /** -------- FINAL DECISION ORDER (REVISED) -------- */
