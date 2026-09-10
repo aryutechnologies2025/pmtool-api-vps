@@ -97,6 +97,51 @@ class AuthorController extends Controller
         return response()->json([$author, 'message' => 'Author form deleted successfully'], 200);
     }
 
+
+    public  function  findAuthorPhoneNumber(Request  $request)
+
+    {
+
+        $phone  =  $request->query('phone');
+
+
+
+        try {
+
+
+
+            $phoneDetails  =  Author::with(['institute',  'department',  'profession'])
+                ->where('phone',  $phone)
+                ->select(
+                    'project_id',
+                    'initial',
+                    'first_name',
+                    'last_name',
+                    'profession_id',
+                    'department_id',
+                    'institute_id',
+                    'state',
+                    'country',
+                    'email',
+                    'phone',
+                    'created_by'
+                )
+                ->first();
+
+
+
+            return  response()->json([
+                'details'  =>  $phoneDetails,
+            ]);
+        } catch (\Exception  $e) {
+
+            Log::error('Error in findPhoneNumber: '  .  $e->getMessage());
+
+
+            return  response()->json(['error'  =>  'Something went wrong'],  500);
+        }
+    }
+
     // public function store(Request $request)
     // {
     //     $author = Author::create($request->all());

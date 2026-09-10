@@ -144,7 +144,7 @@ Route::prefix('entry_process')->controller(EntryProcessController::class)->group
     Route::get('/inhouse', [EntryProcessController::class, 'inhouseExternal']);
     Route::get('/tcdashboard', [EntryProcessController::class, 'tcDashboard']);
     Route::get('/pmDashboard', [EntryProcessController::class, 'pmDashboard']);
-    Route::get('/adminDashboard', [EntryProcessController::class, 'adminDashboard']);
+    Route::get('/adminDashboard', [EntryProcessController::class, 'adminDashboard']); 
     Route::get('/client-details-by-number', [EntryProcessController::class, 'findPhoneNumber']);
 });
 
@@ -238,6 +238,7 @@ Route::prefix('author')->controller(AuthorController::class)->group(function () 
 
     Route::post('/add-submission', 'submission_store');
     Route::get('/submission-list', 'submission_list');
+    Route::get('/find-author-by-phone', 'findAuthorPhoneNumber');
 
     Route::post('/reviewer-comment', 'reviewerComments_store');
     Route::get('/reviewer-list', 'reviewer_list');
