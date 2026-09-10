@@ -400,9 +400,21 @@ class ReportsController extends Controller
             'department:id,name',
             'profession:id,name',
         ])
-            ->select('id', 'client_name', 'email', 'contact_number', 'institute', 'department', 'profession')
+            ->select(
+                'id',
+                'client_name',
+                'email',
+                'contact_number',
+                'institute',
+                'department',
+                'profession'
+            )
             ->where('is_deleted', 0)
-            ->get();
+            ->whereNotNull('contact_number')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('contact_number')
+            ->values();
 
         $clients->load('institute', 'department', 'profession');
 

@@ -111,10 +111,12 @@ class ProfileController extends Controller
 
             //invoice
             $settings->company_name = $request->company_name;
-            $settings->name = $request->name;
+            $settings->name = $request->name; 
             $settings->address = $request->address;
             $settings->email = $request->email;
             $settings->phone_number = $request->phone_number;
+            $settings->hsn = $request->hsn;
+            $settings->gst = $request->gst;
 
             if($request->hasFile('sign_image')){
                 $randomNumber = rand(1000, 9999); 

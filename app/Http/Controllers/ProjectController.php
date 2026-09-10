@@ -928,18 +928,36 @@ class ProjectController extends Controller
 
     public function getTypeOfWorkByBudget(Request $request)
     {
+        $month = $request->input('month', date('m'));
+        $year = $request->input('year', date('Y'));
 
-        $month = $request->input('month', date('m')); // Default to current month if not provided
-        $year = $request->input('year', date('Y')); // Default to current year if not provided
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
 
-        $rawDetails = EntryProcessModel::select('type_of_work', DB::raw('SUM(budget) as total_budget'))
-            ->whereMonth('entry_date', $month)
-            ->whereYear('entry_date', $year)
+        $query = EntryProcessModel::select(
+            'type_of_work',
+            DB::raw('SUM(budget) as total_budget')
+        );
+
+        // Apply date range if provided
+        if ($fromDate && $toDate) {
+            $query->whereBetween('entry_date', [
+                $fromDate . ' 00:00:00',
+                $toDate . ' 23:59:59'
+            ]);
+        } else {
+            // Otherwise use month/year
+            $query->whereMonth('entry_date', $month)
+                ->whereYear('entry_date', $year);
+        }
+
+        $rawDetails = $query
             ->groupBy('type_of_work')
             ->get();
 
         // Convert to key-value pair array
         $details = [];
+
         foreach ($rawDetails as $item) {
             $details[$item->type_of_work] = (int) $item->total_budget;
         }
@@ -951,77 +969,102 @@ class ProjectController extends Controller
 
 
 
+
     public function getIncome_Expense(Request $request)
     {
         $month = $request->input('month', date('m'));
         $months = $request->input('months', date('m'));
         $year = $request->input('year', date('Y'));
 
+        $fromDate = $request->input('from_date');
+        $toDate = $request->input('to_date');
+
         // Journal payments (publication managers)
-        // $journal_details = EmployeePaymentDetails::where('type', 'publication_manager')
-        // ->with('entryProcess')
-        //     ->whereMonth('created_at', $months)
-        //     ->whereYear('created_at', $year)
-        //     ->sum('payment');
         $journal_records = EmployeePaymentDetails::where('type', 'publication_manager')
             ->whereNotNull('employee_id')
-            ->whereHas('entryProcess', function ($q) use ($months, $year) {
-                $q->whereMonth('entry_date', $months)
-                    ->whereYear('entry_date', $year);
+            ->whereHas('entryProcess', function ($q) use ($months, $year, $fromDate, $toDate) {
+
+                if ($fromDate && $toDate) {
+                    $q->whereBetween('entry_date', [
+                        $fromDate . ' 00:00:00',
+                        $toDate . ' 23:59:59'
+                    ]);
+                } else {
+                    $q->whereMonth('entry_date', $months)
+                        ->whereYear('entry_date', $year);
+                }
             })
             ->with('entryProcess')
             ->get();
 
-        // Total payment
+        // Total journal payment
         $journal_details = $journal_records->sum('payment');
 
-        log::info('Total Payment: ' . $journal_details);
+        Log::info('Total Payment: ' . $journal_details);
 
         // Log individual records
         foreach ($journal_records as $record) {
-            log::info('ID: ' . $record->id);
-            log::info('Project ID: ' . $record->project_id);
+            Log::info('ID: ' . $record->id);
+            Log::info('Project ID: ' . $record->project_id);
         }
 
-        // Freelancer payments (non-publication managers)
+        // Freelancer payments
         $freelancer_details = EmployeePaymentDetails::where('type', '!=', 'publication_manager')
-            ->whereHas('entryProcess', function ($q) use ($months, $year) {
-                $q->whereMonth('entry_date', $months)
-                    ->whereYear('entry_date', $year);
+            ->whereHas('entryProcess', function ($q) use ($months, $year, $fromDate, $toDate) {
+
+                if ($fromDate && $toDate) {
+                    $q->whereBetween('entry_date', [
+                        $fromDate . ' 00:00:00',
+                        $toDate . ' 23:59:59'
+                    ]);
+                } else {
+                    $q->whereMonth('entry_date', $months)
+                        ->whereYear('entry_date', $year);
+                }
             })
             ->with('entryProcess')
             ->sum('payment');
 
-        // Employee payroll (from HRMS API)
+        // Employee payroll
         $totalPayroll = 0;
+
         try {
-            $response = Http::get('https://hrmsapi.medicsresearch.com/api/emp-attendances/monthly-report', [
-                'month' => $month,
-                'year' => $year,
-            ]);
+            // Payroll API still works based on month/year
+            $response = Http::get(
+                'https://hrmsapi.medicsresearch.com/api/emp-attendances/monthly-report',
+                [
+                    'month' => $month,
+                    'year' => $year,
+                ]
+            );
 
             if ($response->successful()) {
                 $data = $response->json();
                 $totalPayroll = collect($data)->sum('total_salary_with_ot');
             }
         } catch (\Exception $e) {
-            \Log::error('HRMS Payroll API error: ' . $e->getMessage());
+            Log::error('HRMS Payroll API error: ' . $e->getMessage());
         }
 
-        // Office expenses (from HRMS API)
+        // Office expenses
         $officeExpenses = 0;
+
         try {
-            $response = Http::get('https://hrmsapi.medicsresearch.com/api/expense', [
-                'month' => $months,
-                'year' => $year
-            ]);
+            // Expense API still works based on month/year
+            $response = Http::get(
+                'https://hrmsapi.medicsresearch.com/api/expense',
+                [
+                    'month' => $months,
+                    'year' => $year
+                ]
+            );
 
             if ($response->successful()) {
                 $data = $response->json();
                 $officeExpenses = collect($data['data'])->sum('amount');
             }
         } catch (\Exception $e) {
-            \Log::error('HRMS Expense API error: ' . $e->getMessage());
+            Log::error('HRMS Expense API error: ' . $e->getMessage());
         }
 
         return response()->json([
@@ -1029,7 +1072,11 @@ class ProjectController extends Controller
             'freelancer_details' => $freelancer_details,
             'total_payroll' => $totalPayroll,
             'office_expenses' => $officeExpenses,
-            'total_expense' => $journal_details + $freelancer_details + $totalPayroll + $officeExpenses,
+            'total_expense' => $journal_details
+                + $freelancer_details
+                + $totalPayroll
+                + $officeExpenses,
         ]);
     }
 }
+              
