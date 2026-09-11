@@ -408,7 +408,7 @@ class EntryProcessController extends Controller
         }
     }
 
-    
+
 
 
     private  array  $trackingStatusCache  =  [];
@@ -7538,8 +7538,12 @@ class EntryProcessController extends Controller
         $entries = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
             ->whereNotIn('process_status', ['completed', 'client_review', 'pending_author'])
             ->whereDate('entry_date', '<=', $toDate)->get();
+        // $entriesPM = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
+        //     ->whereNotIn('process_status', ['completed'])
+
+        //     ->whereDate('entry_date', '<=', $toDate)->get();
+
         $entriesPM = EntryProcessModel::select('id', 'type_of_work', 'project_id', 'process_status', 'hierarchy_level', 'projectduration', 'created_by')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
-            ->whereNotIn('process_status', ['completed'])
             ->whereDate('entry_date', '<=', $toDate)->get();
         $totalCount = EntryProcessModel::select('id')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)->count();
@@ -12726,8 +12730,8 @@ class EntryProcessController extends Controller
                     ]);
 
                     $projectEntry = EntryProcessModel::where('id', $id)
-                        ->whereIn('process_status', ['client_review', 'pending_author','completed'])
-                        ->first(); 
+                        ->whereIn('process_status', ['client_review', 'pending_author', 'completed'])
+                        ->first();
 
                     if ($projectEntry) {
                         $projectEntry->process_status = 'in_progress';
