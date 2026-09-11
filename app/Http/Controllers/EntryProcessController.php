@@ -12250,7 +12250,7 @@ class EntryProcessController extends Controller
             }
 
             $projectEntry = EntryProcessModel::where('id', $id)
-                ->whereIn('process_status', ['client_review', 'pending_author'])
+                ->whereIn('process_status', ['client_review', 'pending_author','completed'])
                 ->first();
 
             if ($projectEntry) {
