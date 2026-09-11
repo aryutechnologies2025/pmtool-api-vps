@@ -437,7 +437,11 @@ class ReportsController extends Controller
         $author = EntryProcessModel::with(['institute:id,name', 'department:id,name', 'profession:id,name'])
             ->select('id', 'client_name', 'email', 'contact_number', 'institute', 'department', 'profession')
             ->where('is_deleted', 0)
-            ->get();
+            ->whereNotNull('contact_number')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('contact_number')
+            ->values();
         $author->load('institute', 'department', 'profession');
 
         $matchedAuthors = $author->filter(function ($auth) use ($journal_type) {
