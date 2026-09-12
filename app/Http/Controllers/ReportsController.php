@@ -933,29 +933,49 @@ class ReportsController extends Controller
             $itemArray['payment_details'] = $paymentDetails;
 
             // Calculate fees by type with created_date
-            $groupedPayments = collect($item->employeePaymentDetails)
-                ->groupBy('type')
-                ->mapWithKeys(function ($group, $type) {
-                    $total = $group->sum(function ($g) {
+            // Calculate fees by type with created_date and per-employee breakdown
+$groupedPayments = collect($item->employeePaymentDetails)
+    ->groupBy('type')
+    ->mapWithKeys(function ($group, $type) use ($employees) {
+        $total = $group->sum(function ($g) {
+            return (float) $g->payment;
+        });
+
+        // Get all created dates
+        $createdDates = $group->pluck('created_date')->filter()->unique()->values()->toArray();
+
+        // Break down by employee_id -> employee_name + fee
+        $employeeBreakdown = $group->groupBy('employee_id')
+            ->map(function ($empGroup, $employeeId) use ($employees) {
+                $employeeName = isset($employees[$employeeId])
+                    ? $employees[$employeeId]->employee_name
+                    : null;
+
+                return [
+                    'employee_id'   => $employeeId,
+                    'employee_name' => $employeeName,
+                    'fee'           => (float) $empGroup->sum(function ($g) {
                         return (float) $g->payment;
-                    });
+                    }),
+                ];
+            })
+            ->values()
+            ->toArray();
 
-                    // Get all created dates
-                    $createdDates = $group->pluck('created_date')->filter()->unique()->values()->toArray();
+        // Only return if total > 0
+        if ($total > 0) {
+            return [
+                $type . '_fee' => $total,
+                $type . '_fee_created_date' => $createdDates,
+                $type . '_fee_details' => $employeeBreakdown, // <-- new: per-employee name + fee
+            ];
+        }
 
-                    // Only return if total > 0
-                    if ($total > 0) {
-                        return [
-                            $type . '_fee' => $total,
-                            $type . '_fee_created_date' => $createdDates
-                        ];
-                    }
-
-                    // Return empty array for fees with 0 total (will be filtered out)
-                    return [];
-                })
-                ->filter() // Remove empty entries
-                ->toArray();
+        // Return empty array for fees with 0 total (will be filtered out)
+        return [];
+    })
+    ->filter() // Remove empty entries
+    ->toArray();
 
             // Merge the fee keys into the main array
             $itemArray = array_merge($itemArray, $groupedPayments);

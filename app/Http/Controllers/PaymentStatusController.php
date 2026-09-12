@@ -1429,8 +1429,8 @@ public function getPaymentList(Request $request)
 
     $advancePendingIds = PaymentStatusModel::where('payment_status', 'advance_pending')
         ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
+            $query->where('is_deleted', 0);
+                // ->where('process_status', '!=', 'completed');
         })
         ->pluck('project_id')
         ->toArray();
@@ -1438,8 +1438,8 @@ public function getPaymentList(Request $request)
 
     $partialPaymentPendingIds = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
         ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
+            $query->where('is_deleted', 0);
+                // ->where('process_status', '!=', 'completed');
         })
         ->pluck('project_id')
         ->toArray();
@@ -1456,16 +1456,16 @@ public function getPaymentList(Request $request)
     $advancePending = PaymentStatusModel::where('payment_status', 'advance_pending')
         ->with('paymentData', 'paymentLData')
         ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
+            $query->where('is_deleted', 0);
+                // ->where('process_status', '!=', 'completed');
         })
         ->get();
 
     $partialPaymentPending = PaymentStatusModel::where('payment_status', 'partial_payment_pending')
         ->with('paymentData')
         ->whereHas('projectData', function ($query) {
-            $query->where('is_deleted', 0)
-                ->where('process_status', '!=', 'completed');
+            $query->where('is_deleted', 0);
+                // ->where('process_status', '!=', 'completed');
         })
         ->whereHas('paymentData', function ($query) {
             $query->where('payment_type', 'partial_payment_pending');
