@@ -8150,20 +8150,15 @@ class EntryProcessController extends Controller
         $totalCount = EntryProcessModel::select('id')->where('is_deleted', 0)->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)->count();
 
-        $projectStatusList = EntryProcessModel::with('projectStatus') // Just eager-load the relation
-            ->whereHas('projectStatus', function ($query) {
-                $query->where('status', 'rejected')
-                    ->orderBy('created_at', 'desc');
+        $projectStatusCount = EntryProcessModel::whereHas('projectStatus', function ($query) {
+                $query->where('status', 'rejected');
             })
             ->where('is_deleted', 0)
             ->where('process_status', '!=', 'completed')
             // ->whereYear('entry_date', $currentYear)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        $projectStatusCount = $projectStatusList->count();
+            ->count();
 
         // Initialize counters
         $typeOfWorkCounts = [
@@ -8218,7 +8213,6 @@ class EntryProcessController extends Controller
         ];
 
         $paymentEntries = PaymentStatusModel::select('payment_status', 'id')
-            ->with(['projectData'])
             ->whereIn('payment_status', [
                 'advance_pending',
                 'partial_payment_pending',
@@ -8293,42 +8287,21 @@ class EntryProcessController extends Controller
             return $query->count();
         }
 
-        $urgentDataList = EntryProcessModel::select('id', 'journal', 'writer', 'statistican', 'reviewer', 'hierarchy_level', 'project_id')->where('hierarchy_level', 'urgent_important')
+        $urgentDataListCount = EntryProcessModel::where('hierarchy_level', 'urgent_important')
             ->where('is_deleted', 0)
             ->whereNotIn('process_status', ['completed', 'withdrawal'])
             // ->whereYear('entry_date', $currentYear)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
-            ->orderBy('id', 'desc')
-            ->get();
+            ->count();
 
-        // Count the urgent data
-        $urgentDataListCount = $urgentDataList->count();
-
-        $currentDate = now()->format('Y-m-d');
-        $projectdelayDataList = EntryProcessModel::with(['paymentProcess', 'instituteInfo', 'departmentInfo', 'professionInfo'])->select(
-            'id',
-            'title',
-            'institute',
-            'department',
-            'entry_date',
-            'profession',
-            'client_name',
-            // DB::raw("CONCAT(DATEDIFF(projectduration, created_at), ' days ', MOD(TIMESTAMPDIFF(HOUR, created_at, projectduration), 24), ' hrs') AS projectduration"),
-            DB::raw("CONCAT(DATEDIFF(projectduration, entry_date), ' days') AS projectduration"),
-            'hierarchy_level',
-            'project_id'
-        )
-            ->where('projectduration', '<', $currentDate)
+        $projectdelayDataCount = EntryProcessModel::where('projectduration', '<', $currentDate)
             ->where('is_deleted', 0)
             ->whereNotIn('process_status', ['completed', 'withdrawal'])
             // ->whereYear('entry_date', $currentYear)
             ->whereDate('entry_date', '>=', $fromDate)
             ->whereDate('entry_date', '<=', $toDate)
-            ->orderBy('id', 'desc')
-            ->get();
-
-        $projectdelayDataCount = $projectdelayDataList->count();
+            ->count();
         $peopleIds_pm = People::where('position', '28')
             ->pluck('id')
             ->filter()
@@ -8336,7 +8309,6 @@ class EntryProcessController extends Controller
             ->toArray();
 
         $journalEntries = ProjectAssignDetails::select('status', 'id', 'project_id')
-            ->with(['projectData'])
             ->where('type', 'publication_manager')
             // ->whereIn('created_by', $peopleIds_pm)
             ->whereIn('status', array_keys($journalStatusCounts))
@@ -8411,45 +8383,19 @@ class EntryProcessController extends Controller
         $idsToCheck = [];
         $projectIds = $entries->pluck('id')->toArray();
         // Count writer and reviewer
-        $writerProjectCount = ProjectAssignDetails::with(['projectData'])
-            ->whereIn('project_id', $projectIds)->where('type', 'writer')
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })->count();
+        $writerProjectCount = ProjectAssignDetails::whereIn('project_id', $projectIds)->where('type', 'writer')->count();
 
-        $reviewerProjectCount = ProjectAssignDetails::with(['projectData'])->whereIn('project_id', $projectIds)->where('type', 'reviewer')
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })
-            ->count();
+        $reviewerProjectCount = ProjectAssignDetails::whereIn('project_id', $projectIds)->where('type', 'reviewer')->count();
 
-        $submitted_peer = ProjectAssignDetails::with(['projectData'])->whereIn('status', ['submit_to_journal', 'peer_review'])
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })
-            ->count();
-        $resubmission_rejected = ProjectAssignDetails::with(['projectData'])->whereIn('status', ['resubmission', 'rejected'])
-            ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                $query->where('is_deleted', 0)
-                    ->whereDate('entry_date', '>=', $fromDate)
-                    ->whereDate('entry_date', '<=', $toDate);
-            })->count();
+        $submitted_peer = ProjectAssignDetails::whereIn('project_id', $projectIds)->whereIn('status', ['submit_to_journal', 'peer_review'])->count();
 
-        $journalEntriesCount = ProjectAssignDetails::with(['projectData'])->whereIn('status', [
+        $resubmission_rejected = ProjectAssignDetails::whereIn('project_id', $projectIds)->whereIn('status', ['resubmission', 'rejected'])->count();
+
+        $journalEntriesCount = ProjectAssignDetails::whereIn('project_id', $projectIds)->whereIn('status', [
             'submit_to_journal',
             'peer_review',
             'reviewer_comments',
-        ])->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-            $query->where('is_deleted', 0)
-                ->whereDate('entry_date', '>=', $fromDate)
-                ->whereDate('entry_date', '<=', $toDate);
-        })->count();
+        ])->count();
 
         foreach ($entries as $entry) {
             // Count type_of_work
