@@ -8706,8 +8706,6 @@ class EntryProcessController extends Controller
             'inhouseExternal' => $this->inhouseExternal($request, $fromDate, $toDate)->getData(true),
             'monthWiseTable' => $this->monthWiseTable($position, $fromDate, $toDate),
             // 'monthWiseTable' => $this->monthWiseTable($position, $selectedMonth),
-            'staaging' => 'staaging'
-
         ]);
     }
 
