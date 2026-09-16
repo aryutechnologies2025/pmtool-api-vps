@@ -8494,101 +8494,19 @@ class EntryProcessController extends Controller
             if ($entry->process_status === 'not_assigned' && $entry->process_status !== 'completed') {
                 $notAssignedCount++;
             }
-            $delayedProjects = [];
+        }
 
-            $projectstatus = ProjectViewStatus::with(['projectViews'])->where('project_id', $entry->id)->Where('project_status', '!=', 'completed')
-                ->whereHas('projectViews', function ($query) use ($fromDate, $toDate) {
-                    $query->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->orderBy('id', 'desc')->latest()->first();
-
-            $projectstatus_completeddate = $projectstatus ? $projectstatus->created_date : null;
-
-            $projectDurationDate = $entry->projectduration;
-
-            if ($projectstatus_completeddate) {
-
-                if ($projectDurationDate < $currentDate) {
-                    $projectDelayCount++;
-
-                    $delayedProjects[] = [
-                        'project_id' => $entry->project_id,
-                        'id' => $entry->id,
-                        'entry_date' => $entry->entry_date,
-                        'hierarchy_level' => $entry->hierarchy_level,
-                        'type_of_work' => $entry->type_of_work,
-                        'title' => $entry->title,
-                        'process_status' => $entry->process_status,
-                        'writer' => $entry->writer,
-                        'reviewer' => $entry->reviewer,
-                        'statistican' => $entry->statistican,
-                        'journal' => $entry->journal,
-                        'writer_status' => $entry->writer_status,
-                        'reviewer_status' => $entry->reviewer_status,
-                        'statistican_status' => $entry->statistican_status,
-                        'journal_status' => $entry->journal_status,
-                        'client_name' => $entry->client_name,
-
-                        'project_duration' => $entry->projectduration,
-                    ];
-                } else {
-                    if ($projectDurationDate < $currentDate) {
-                        $delayedProjects[] = [
-                            'project_id' => $entry->project_id,
-                            'id' => $entry->id,
-                            'entry_date' => $entry->entry_date,
-                            'hierarchy_level' => $entry->hierarchy_level,
-                            'type_of_work' => $entry->type_of_work,
-                            'title' => $entry->title,
-                            'process_status' => $entry->process_status,
-                            'writer' => $entry->writer,
-                            'reviewer' => $entry->reviewer,
-                            'statistican' => $entry->statistican,
-                            'journal' => $entry->journal,
-                            'writer_status' => $entry->writer_status,
-                            'reviewer_status' => $entry->reviewer_status,
-                            'statistican_status' => $entry->statistican_status,
-                            'journal_status' => $entry->journal_status,
-                            'client_name' => $entry->client_name,
-
-                            'project_duration' => $entry->projectduration,
-                        ];
-                    }
+        // Fetch assign projects in one go to prevent N+1 queries inside loop
+        $assignprojectIds = [];
+        if (!empty($projectIds)) {
+            $allAssignProjects = ProjectAssignDetails::whereIn('project_id', $projectIds)->get(['project_id', 'assign_user']);
+            foreach ($allAssignProjects as $assign) {
+                if (!empty($assign->assign_user)) {
+                    $assignprojectIds[$assign->project_id][] = $assign->assign_user;
                 }
             }
-            if ($entry->type_of_work === 'manuscript') {
-                $assignProject = ProjectAssignDetails::select('status', 'type')->with('projectData')->where('project_id', $entry->id)
-                    ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                        $query->where('is_deleted', 0)
-                            ->whereDate('entry_date', '>=', $fromDate)
-                            ->whereDate('entry_date', '<=', $toDate);
-                    })
-                    ->get();
-
-                foreach ($assignProject as $project) {
-                    if ($project->type === 'writer') {
-                        $writerStatusCounts[$project->status] = ($writerStatusCounts[$project->status] ?? 0) + 1;
-                    }
-
-                    if ($project->type === 'reviewer') {
-                        $reviewerStatusCounts[$project->status] = ($reviewerStatusCounts[$project->status] ?? 0) + 1;
-                    }
-                }
-            }
-
-            //freeelancer count
-            $assignproject = ProjectAssignDetails::with('projectData')->where('project_id', $entry->id)
-                ->whereHas('projectData', function ($query) use ($fromDate, $toDate) {
-                    $query->where('is_deleted', 0)
-                        ->whereDate('entry_date', '>=', $fromDate)
-                        ->whereDate('entry_date', '<=', $toDate);
-                })
-                ->pluck('assign_user')->toArray();
-
-            if (! empty($assignproject)) {
-                $assignprojectIds[$entry->id] = array_unique($assignproject);
+            foreach ($assignprojectIds as $k => $users) {
+                $assignprojectIds[$k] = array_unique($users);
             }
         }
         // $allAssignUserIds = array_unique(array_merge(...array_values($assignprojectIds)));
